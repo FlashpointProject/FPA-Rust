@@ -1,0 +1,3 @@
+target
+flashpoint.sqlite*
+/bindings/binding-node/test.mjs

@@ -1,0 +1,7 @@
+/node_modules
+/target
+/package-lock.json
+/index.d.ts
+/index.js
+/flashpoint.sqlite*
+/*.node

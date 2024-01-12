@@ -1,0 +1,20 @@
+[package]
+name = "flashpoint"
+edition = "2021"
+version = "0.1.0"
+build = "build.rs"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = "2"
+napi-derive = "2"
+flashpoint-archive = { path = "../../crates/flashpoint-archive" }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
