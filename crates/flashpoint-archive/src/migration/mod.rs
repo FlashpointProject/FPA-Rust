@@ -9,6 +9,7 @@ pub fn get() -> Migrations<'static> {
                 "name"	varchar NOT NULL COLLATE NOCASE,
                 "color"	varchar NOT NULL,
                 "description"	varchar,
+                CONSTRAINT "UQ_tag_category_name" UNIQUE("name"),
                 PRIMARY KEY("id" AUTOINCREMENT)
             );
             CREATE TABLE IF NOT EXISTS "tag_alias" (

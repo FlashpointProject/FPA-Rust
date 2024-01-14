@@ -1,16 +1,19 @@
 use game::PartialGame;
 use rusqlite::Connection;
 use snafu::ResultExt;
+use tag::Tag;
+use tag_category::{TagCategory, PartialTagCategory};
 use std::sync::Mutex;
 
 mod error;
 use error::{Error, Result};
 
-mod game;
+pub mod game;
 mod game_data;
 mod migration;
 mod platform;
 mod tag;
+mod tag_category;
 
 pub struct Flashpoint {
     conn: Mutex<Option<Connection>>,
@@ -29,21 +32,25 @@ impl Flashpoint {
             conn.close()
                 .map_err(|e| Error::SqliteError { source: e.1 })?;
         }
-        if source == ":memory:" {
-            let mut conn = Connection::open_in_memory().context(error::SqliteSnafu)?;
-            migration::up(&mut conn).context(error::DatabaseMigrationSnafu)?;
-            conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
-            rusqlite::vtab::array::load_module(&conn).context(error::SqliteSnafu)?;
-            *conn_lock = Some(conn);
-            Ok(())
+
+        let mut conn = if source == ":memory:" {
+            Connection::open_in_memory().context(error::SqliteSnafu)?
         } else {
-            let mut conn = Connection::open(source).context(error::SqliteSnafu)?;
-            migration::up(&mut conn).context(error::DatabaseMigrationSnafu)?;
-            conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
-            rusqlite::vtab::array::load_module(&conn).context(error::SqliteSnafu)?;
-            *conn_lock = Some(conn);
-            Ok(())
-        }
+            Connection::open(source).context(error::SqliteSnafu)?
+        };
+
+        migration::up(&mut conn).context(error::DatabaseMigrationSnafu)?;
+        conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
+        tag_category::find_or_create(&conn, "default").context(error::SqliteSnafu)?;
+        rusqlite::vtab::array::load_module(&conn).context(error::SqliteSnafu)?;
+        *conn_lock = Some(conn);
+        Ok(())
+    }
+
+    pub fn search_games(&self, search: &game::search::GameSearch) -> Result<Vec<game::Game>> {
+        with_connection!(self.conn, |conn| {
+            game::search::search(conn, search).context(error::SqliteSnafu)
+        })
     }
 
     pub fn find_game(&self, id: &str) -> Result<Option<game::Game>> {
@@ -53,13 +60,13 @@ impl Flashpoint {
     }
 
     pub fn create_game(&self, partial_game: &PartialGame) -> Result<game::Game> {
-        with_connection!(self.conn, |conn| {
+        with_mut_connection!(self.conn, |conn| {
             game::create(conn, partial_game).context(error::SqliteSnafu)
         })
     }
 
     pub fn save_game(&self, partial_game: &PartialGame) -> Result<game::Game> {
-        with_connection!(self.conn, |conn| {
+        with_mut_connection!(self.conn, |conn| {
             game::save(conn, partial_game).context(error::SqliteSnafu)
         })
     }
@@ -76,7 +83,13 @@ impl Flashpoint {
         })
     }
 
-    pub fn find_tag(&self, name: &str) -> Result<Option<tag::Tag>> {
+    pub fn find_all_tags(&self) -> Result<Vec<Tag>> {
+        with_connection!(self.conn, |conn| {
+            tag::find(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn find_tag(&self, name: &str) -> Result<Option<Tag>> {
         with_connection!(self.conn, |conn| {
             tag::find_by_name(conn, name).context(error::SqliteSnafu)
         })
@@ -88,7 +101,13 @@ impl Flashpoint {
         })
     }
 
-    pub fn find_platform(&self, name: &str) -> Result<Option<tag::Tag>> {
+    pub fn find_all_platforms(&self) -> Result<Vec<Tag>> {
+        with_connection!(self.conn, |conn| {
+            platform::find(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn find_platform(&self, name: &str) -> Result<Option<Tag>> {
         with_connection!(self.conn, |conn| {
             platform::find_by_name(conn, name).context(error::SqliteSnafu)
         })
@@ -97,6 +116,24 @@ impl Flashpoint {
     pub fn count_platforms(&self) -> Result<i64> {
         with_connection!(self.conn, |conn| {
             platform::count(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn find_all_tag_categories(&self) -> Result<Vec<TagCategory>> {
+        with_connection!(self.conn, |conn| {
+            tag_category::find(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn find_tag_category(&self, name: &str) -> Result<Option<TagCategory>> {
+        with_connection!(self.conn, |conn| {
+            tag_category::find_by_name(conn, name).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn create_tag_category(&self, partial: &PartialTagCategory) -> Result<TagCategory> {
+        with_connection!(self.conn, |conn| {
+            tag_category::create(conn, partial).context(error::SqliteSnafu)
         })
     }
 }
@@ -117,9 +154,24 @@ macro_rules! with_connection {
     };
 }
 
+#[macro_export]
+macro_rules! with_mut_connection {
+    ($lock:expr, $body:expr) => {
+        match $lock.lock() {
+            Ok(mut guard) => {
+                if let Some(ref mut conn) = *guard {
+                    $body(conn)
+                } else {
+                    Err(Error::DatabaseNotInitialized {})
+                }
+            }
+            Err(_) => Err(Error::MutexLockFailed {}),
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::game::PartialGame;
 
     use super::*;
 
@@ -152,6 +204,73 @@ mod tests {
     }
 
     #[test]
+    fn search_full_scan() {
+        let flashpoint = Flashpoint::new();
+        let create = flashpoint.load_database("flashpoint.sqlite");
+        assert!(create.is_ok());
+        let mut search = game::search::GameSearch::default();
+        search.limit = 99999999;
+        search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
+        let result = flashpoint.search_games(&search);
+        assert!(result.is_ok());
+        let games = result.unwrap();
+        assert_eq!(games.len(), 162929);
+    }
+
+    #[test]
+    fn search_tags_or() {
+        let flashpoint = Flashpoint::new();
+        let create = flashpoint.load_database("flashpoint.sqlite");
+        assert!(create.is_ok());
+        let mut search = game::search::GameSearch::default();
+        search.limit = 99999999;
+        search.filter.match_any = true;
+        search.filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
+        let result = flashpoint.search_games(&search);
+        assert!(result.is_ok());
+        let games = result.unwrap();
+        assert_eq!(games.len(), 36724);
+    }
+
+    #[test]
+    fn search_tags_and() {
+        let flashpoint = Flashpoint::new();
+        let create = flashpoint.load_database("flashpoint.sqlite");
+        assert!(create.is_ok());
+        let mut search = game::search::GameSearch::default();
+        search.limit = 99999999;
+        search.filter.match_any = false;
+        search.filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
+        let result = flashpoint.search_games(&search);
+        assert!(result.is_ok());
+        let games = result.unwrap();
+        assert_eq!(games.len(), 397);
+    }
+
+    #[test]
+    fn search_tags_and_or_combined() {
+        // Has 'Action' or 'Adventure', but is missing 'Sonic The Hedgehog'
+        let flashpoint = Flashpoint::new();
+        let create = flashpoint.load_database("flashpoint.sqlite");
+        assert!(create.is_ok());
+        let mut search = game::search::GameSearch::default();
+        let mut inner_filter = game::search::GameFilter::default();
+        // Uncap limit, we want an accurate count
+        search.limit = 99999999;
+        // Add the OR to an inner filter
+        inner_filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
+        inner_filter.match_any = true; // OR
+        // Add the AND to the main filter, with the inner filter
+        search.filter.subfilters = vec![inner_filter];
+        search.filter.exact_blacklist.tags = Some(vec!["Sonic The Hedgehog".to_owned()]);
+        search.filter.match_any = false; // AND
+        let result = flashpoint.search_games(&search);
+        assert!(result.is_ok());
+        let games = result.unwrap();
+        assert_eq!(games.len(), 36541);
+    }
+
+    #[test]
     fn find_game() {
         let flashpoint = Flashpoint::new();
         let create = flashpoint.load_database("flashpoint.sqlite");
@@ -169,13 +288,42 @@ mod tests {
     }
 
     #[test]
+    fn tag_categories() {
+        let flashpoint = Flashpoint::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let partial_tc = tag_category::PartialTagCategory {
+            name: "test".to_owned(),
+            color: "#FF00FF".to_owned(),
+            description: Some("test".to_owned()),
+        };
+        assert!(flashpoint.create_tag_category(&partial_tc).is_ok());
+        let saved_cat_result = flashpoint.find_tag_category("test");
+        assert!(saved_cat_result.is_ok());
+        let saved_cat_opt = saved_cat_result.unwrap();
+        assert!(saved_cat_opt.is_some());
+        let saved_cat = saved_cat_opt.unwrap();
+        assert_eq!(saved_cat.name, "test");
+        assert_eq!(saved_cat.color, "#FF00FF");
+        assert!(saved_cat.description.is_some());
+        assert_eq!(saved_cat.description.unwrap(), "test");
+
+        let all_cats_result = flashpoint.find_all_tag_categories();
+        assert!(all_cats_result.is_ok());
+        let all_cats = all_cats_result.unwrap();
+        // Default category always exists
+        assert_eq!(all_cats.len(), 2);
+    }
+
+    #[test]
     fn create_and_save_game() {
         let flashpoint = Flashpoint::new();
         let create = flashpoint.load_database(":memory:");
         assert!(create.is_ok());
-        let partial_game = PartialGame {
+        let partial_game = game::PartialGame {
             title: Some(String::from("Test Game")),
-            ..PartialGame::default()
+            tags: Some(vec!["Action"].into()),
+            ..game::PartialGame::default()
         };
         let result = flashpoint.create_game(&partial_game);
         assert!(result.is_ok());

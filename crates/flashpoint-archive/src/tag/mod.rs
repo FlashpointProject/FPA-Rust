@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use rusqlite::{Connection, Result, params};
+use rusqlite::{Connection, Result, params, OptionalExtension};
 
 #[derive(Debug, Clone)]
 pub struct Tag {
@@ -19,28 +19,60 @@ pub struct PartialTag {
     pub aliases: Option<Vec<String>>,
 }
 
-pub fn find_or_create(conn: &Connection, name: &str) -> Result<Tag> {
+pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag_alias ta
+        INNER JOIN tag t ON t.id = ta.tagId
+        INNER JOIN tag_category tc ON t.categoryId = tc.id")?;
+
+    let tag_iter = stmt.query_map((), |row| {
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            date_modified: row.get(3)?,
+            aliases: vec![],
+            category: row.get(4)?,
+        })
+    })?;
+
+    let mut tags = vec![];
+
+    for tag in tag_iter {
+        let mut tag = tag?;
+        let mut tag_alias_stmt = conn.prepare(
+            "SELECT ta.name FROM tag_alias ta WHERE ta.tagId = ?")?;
+        let tag_alias_iter = tag_alias_stmt.query_map(params![&tag.id], |row| row.get(0))?;
+        
+        for alias in tag_alias_iter {
+            tag.aliases.push(alias.unwrap());
+        }
+        tags.push(tag);
+    }
+
+    Ok(tags)
+}
+
+pub fn find_or_create(conn: &mut Connection, name: &str) -> Result<Tag> {
     let tag_result = find_by_name(conn, name)?;
     if let Some(tag) = tag_result {
         Ok(tag)
     } else {
+        let tx = conn.transaction()?;
         // Create the alias
-        let mut stmt = conn.prepare(
-            "INSERT INTO tag_alias (name, tagId) VALUES(?1, ?2) RETURNING id"
-        )?;
+        let mut stmt = "INSERT INTO tag_alias (name, tagId) VALUES(?, ?) RETURNING id";
 
         // Create a new tag
-        let alias_id: i64 = stmt.query_row(params![name, -1], |row| row.get(0))?;
-        stmt = conn.prepare(
-            "INSERT INTO tag (primaryAliasId, description) VALUES (?1, '') RETURNING id"
-        )?;
-        let tag_id: i64 = stmt.query_row(params![alias_id], |row| row.get(0))?;
+        let alias_id: i64 = tx.query_row(stmt, params![name, -1], |row| row.get(0))?;
+
+        stmt = "INSERT INTO tag (primaryAliasId, description, categoryId) VALUES (?, '', 1) RETURNING id";
+        let tag_id: i64 = tx.query_row(stmt, params![alias_id], |row| row.get(0))?;
 
         // Update tag alias with the new tag id
-        stmt = conn.prepare(
-            "UPDATE tag_alias SET tagId = ?1 WHERE id = ?2"
-        )?;
-        stmt.execute(params![tag_id, alias_id])?;
+        stmt = "UPDATE tag_alias SET tagId = ? WHERE id = ?";
+        tx.execute(stmt, params![tag_id, alias_id])?;
+
+        tx.commit()?;
 
         let new_tag_result = find_by_name(conn, name)?;
         if let Some(tag) = new_tag_result {
@@ -57,8 +89,8 @@ pub fn find_by_name(conn: &Connection, name: &str) -> Result<Option<Tag>> {
         "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag_alias ta
         INNER JOIN tag t ON t.id = ta.tagId
         INNER JOIN tag_category tc ON t.categoryId = tc.id
-        WHERE ta.name = ?1")?;
-
+        WHERE ta.name = ?")?;
+    
     let tag_result = stmt.query_row(params![name], |row| {
         Ok(Tag {
             id: row.get(0)?,
@@ -68,22 +100,20 @@ pub fn find_by_name(conn: &Connection, name: &str) -> Result<Option<Tag>> {
             category: row.get(4)?,
             aliases: vec![],
         })
-    });
+    }).optional()?;
 
-    match tag_result {
-        Ok(mut tag) => {
-            let mut tag_alias_stmt = conn.prepare(
-                "SELECT ta.name FROM tag_alias ta WHERE ta.tagId = ?1")?;
-            let tag_alias_iter = tag_alias_stmt.query_map(params![&tag.id], |row| row.get(0))?;
-            
-            for alias in tag_alias_iter {
-                tag.aliases.push(alias.unwrap());
-            }
+    if let Some(mut tag) = tag_result {
+        let mut tag_alias_stmt = conn.prepare(
+            "SELECT ta.name FROM tag_alias ta WHERE ta.tagId = ?")?;
+        let tag_alias_iter = tag_alias_stmt.query_map(params![&tag.id], |row| row.get(0))?;
+        
+        for alias in tag_alias_iter {
+            tag.aliases.push(alias.unwrap());
+        }
 
-            Ok(Some(tag))
-        },
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e),
+        Ok(Some(tag))
+    } else {
+        Ok(None)
     }
 }
 

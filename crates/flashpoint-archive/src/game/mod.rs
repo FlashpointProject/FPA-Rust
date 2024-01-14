@@ -9,6 +9,8 @@ use std::{ops::{Deref, DerefMut}, vec::Vec, rc::Rc};
 
 use crate::{tag::{Tag, self}, platform, game_data::GameData};
 
+pub mod search;
+
 #[derive(Debug, Clone)]
 pub struct TagVec(Vec<String>);
 
@@ -165,7 +167,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
         tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
         originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
         activeGameConfigId, activeGameConfigOwner, archiveState, library \
-        FROM game WHERE id = ?1",
+        FROM game WHERE id = ?",
     )?;
 
     let game_result = stmt
@@ -207,9 +209,9 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
                 game_data: None,
             })
         })
-        .optional(); // Converts rusqlite::Error::QueryReturnedNoRows to None
+        .optional()?; // Converts rusqlite::Error::QueryReturnedNoRows to None
 
-    if let Ok(Some(mut game)) = game_result {
+    if let Some(mut game) = game_result {
         game.detailed_platforms = Some(get_game_platforms(conn, id)?);
         game.detailed_tags = Some(get_game_tags(conn, id)?);
         game.game_data = Some(get_game_data(conn, id)?);
@@ -219,7 +221,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
     }
 }
 
-pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
+pub fn create(conn: &mut Connection, partial: &PartialGame) -> Result<Game> {
     let mut game: Game = partial.into();
 
     let tags_copy = game.tags.clone();
@@ -282,10 +284,13 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     Ok(game)
 }
 
-pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
+pub fn save(conn: &mut Connection, game: &PartialGame) -> Result<Game> {
+    println!("saving");
     let existing_game_result = find(conn, game.id.as_str())?;
     if let Some(mut existing_game) = existing_game_result {
         existing_game.apply_partial(game);
+        println!("applying");
+
 
         // Process  any tag and platform changes
         let tags_copy = existing_game.tags.clone();
@@ -296,33 +301,38 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
         existing_game.platforms = vec![].into();
 
         for name in tags_copy {
+            println!("tag");
             let detailed_tag = tag::find_or_create(conn, &name)?;
             detailed_tags_copy.push(detailed_tag.clone());
             existing_game.tags.push(detailed_tag.name);
         }
 
         for name in platforms_copy {
+            println!("platform");
             let detailed_platform = platform::find_or_create(conn, &name)?;
             detailed_platforms_copy.push(detailed_platform.clone());
             existing_game.platforms.push(detailed_platform.name);
         }
 
+        println!("doing relations");
+
+
         // Update relations in database
         let tag_ids: Vec<i64> = detailed_tags_copy.iter().map(|t| t.id).collect::<Vec<i64>>();
         let tag_values = Rc::new(tag_ids.iter().copied().map(Value::from).collect::<Vec<Value>>());
-        let mut stmt = conn.prepare("DELETE FROM game_tags_tag WHERE gameId = ?1 AND tagId NOT IN rarray(?2)")?;
+        let mut stmt = conn.prepare("DELETE FROM game_tags_tag WHERE gameId = ? AND tagId NOT IN rarray(?)")?;
         stmt.execute(params![existing_game.id.as_str(), tag_values]).map(|changes| changes as usize)?;
         for tag_id in tag_ids {
-            stmt = conn.prepare("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?1, ?2)")?;
+            stmt = conn.prepare("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)")?;
             stmt.execute(params![existing_game.id.as_str(), tag_id])?;
         }
 
         let platform_ids: Vec<i64> = detailed_platforms_copy.iter().map(|t| t.id).collect::<Vec<i64>>();
         let platform_values = Rc::new(platform_ids.iter().copied().map(Value::from).collect::<Vec<Value>>());
-        let mut stmt = conn.prepare("DELETE FROM game_platforms_platform WHERE gameId = ?1 AND platformId NOT IN rarray(?2)")?;
+        let mut stmt = conn.prepare("DELETE FROM game_platforms_platform WHERE gameId = ? AND platformId NOT IN rarray(?)")?;
         stmt.execute(params![existing_game.id.as_str(), platform_values]).map(|changes| changes as usize)?;
         for platform_id in platform_ids {
-            stmt = conn.prepare("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?1, ?2)")?;
+            stmt = conn.prepare("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)")?;
             stmt.execute(params![existing_game.id.as_str(), platform_id])?;
         }
 
@@ -371,6 +381,8 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
             ],
         )?;
 
+
+
         existing_game.detailed_platforms = get_game_platforms(conn, existing_game.id.as_str())?.into();
         existing_game.detailed_tags = get_game_tags(conn, existing_game.id.as_str())?.into();
 
@@ -381,7 +393,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<usize> {
-    let mut stmt = conn.prepare("DELETE FROM game WHERE id = ?1")?;
+    let mut stmt = conn.prepare("DELETE FROM game WHERE id = ?")?;
 
     stmt.execute(params![id])
 }
@@ -395,7 +407,7 @@ fn get_game_platforms(conn: &Connection, id: &str) -> Result<Vec<Tag>> {
         "SELECT p.id, p.description, pa.name, p.dateModified FROM platform p
          INNER JOIN game_platforms_platform gpp ON gpp.platformId = p.id
          INNER JOIN platform_alias pa ON p.primaryAliasId = pa.id
-         WHERE gpp.gameId = ?1",
+         WHERE gpp.gameId = ?",
     )?;
 
     let platform_iter = platform_stmt.query_map(params![id], |row| {
@@ -416,7 +428,7 @@ fn get_game_platforms(conn: &Connection, id: &str) -> Result<Vec<Tag>> {
 
         // Query for the aliases of the platform
         let mut platform_aliases_stmt =
-            conn.prepare("SELECT pa.name FROM platform_alias pa WHERE pa.platformId = ?1")?;
+            conn.prepare("SELECT pa.name FROM platform_alias pa WHERE pa.platformId = ?")?;
 
         let aliases_iter = platform_aliases_stmt
             .query_map(params![platform.id], |row| Ok(row.get::<_, String>(0)?))?;
@@ -438,7 +450,7 @@ fn get_game_tags(conn: &Connection, id: &str) -> Result<Vec<Tag>> {
          INNER JOIN game_tags_tag gtt ON gtt.tagId = t.id
          INNER JOIN tag_alias ta ON t.primaryAliasId = ta.id
          INNER JOIN tag_category tc ON t.categoryId = tc.id
-         WHERE gtt.gameId = ?1",
+         WHERE gtt.gameId = ?",
     )?;
 
     let tag_iter = tag_stmt.query_map(params![id], |row| {
@@ -459,7 +471,7 @@ fn get_game_tags(conn: &Connection, id: &str) -> Result<Vec<Tag>> {
 
         // Query for the aliases of the platform
         let mut tag_aliases_stmt =
-            conn.prepare("SELECT ta.name FROM tag_alias ta WHERE ta.tagId = ?1")?;
+            conn.prepare("SELECT ta.name FROM tag_alias ta WHERE ta.tagId = ?")?;
 
         let aliases_iter =
             tag_aliases_stmt.query_map(params![tag.id], |row| Ok(row.get::<_, String>(0)?))?;
@@ -482,7 +494,7 @@ fn get_game_data(conn: &Connection, id: &str) -> Result<Vec<GameData>> {
         SELECT id, title, dateAdded, sha256, crc32, presentOnDisk,
         path, size, parameters, applicationPath, launchCommand
         FROM game_data
-        WHERE gameId = ?1
+        WHERE gameId = ?
     ")?;
 
     let rows = game_data_stmt.query_map(params![id], |row| {
