@@ -1,4 +1,4 @@
-use game::PartialGame;
+use game::{PartialGame, search::GameSearch};
 use rusqlite::Connection;
 use snafu::ResultExt;
 use tag::Tag;
@@ -47,9 +47,21 @@ impl Flashpoint {
         Ok(())
     }
 
-    pub fn search_games(&self, search: &game::search::GameSearch) -> Result<Vec<game::Game>> {
+    pub fn search_games(&self, search: &GameSearch) -> Result<Vec<game::Game>> {
         with_connection!(self.conn, |conn| {
             game::search::search(conn, search).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn search_games_index(&self, search: &GameSearch) -> Result<Vec<String>> {
+        with_connection!(self.conn, |conn| {
+            game::search::search_index(conn, search).context(error::SqliteSnafu)
+        })
+    }
+
+    pub fn search_games_total(&self, search: &GameSearch) -> Result<i64> {
+        with_connection!(self.conn, |conn| {
+            game::search::search_count(conn, search).context(error::SqliteSnafu)
         })
     }
 
@@ -173,6 +185,8 @@ macro_rules! with_mut_connection {
 #[cfg(test)]
 mod tests {
 
+    use crate::game::search::GameSearchOffset;
+
     use super::*;
 
     #[test]
@@ -209,7 +223,7 @@ mod tests {
         let create = flashpoint.load_database("flashpoint.sqlite");
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
-        search.limit = 99999999;
+        search.limit = 99999999999;
         search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
         let result = flashpoint.search_games(&search);
         assert!(result.is_ok());
@@ -223,7 +237,7 @@ mod tests {
         let create = flashpoint.load_database("flashpoint.sqlite");
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
-        search.limit = 99999999;
+        search.limit = 99999999999;
         search.filter.match_any = true;
         search.filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
         let result = flashpoint.search_games(&search);
@@ -238,7 +252,7 @@ mod tests {
         let create = flashpoint.load_database("flashpoint.sqlite");
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
-        search.limit = 99999999;
+        search.limit = 99999999999;
         search.filter.match_any = false;
         search.filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
         let result = flashpoint.search_games(&search);
@@ -256,7 +270,7 @@ mod tests {
         let mut search = game::search::GameSearch::default();
         let mut inner_filter = game::search::GameFilter::default();
         // Uncap limit, we want an accurate count
-        search.limit = 99999999;
+        search.limit = 30000;
         // Add the OR to an inner filter
         inner_filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
         inner_filter.match_any = true; // OR
@@ -264,10 +278,36 @@ mod tests {
         search.filter.subfilters = vec![inner_filter];
         search.filter.exact_blacklist.tags = Some(vec!["Sonic The Hedgehog".to_owned()]);
         search.filter.match_any = false; // AND
+
+        // Test total results
+        let total_result = flashpoint.search_games_total(&search);
+        assert!(total_result.is_ok());
+        let total = total_result.unwrap();
+        assert_eq!(total, 36541);
+
+        // Test first page results
         let result = flashpoint.search_games(&search);
         assert!(result.is_ok());
         let games = result.unwrap();
-        assert_eq!(games.len(), 36541);
+        assert_eq!(games.len(), 30000);
+        let page_end_game = games.last().unwrap();
+
+        // Test index
+        let index_result = flashpoint.search_games_index(&search);
+        assert!(index_result.is_ok());
+        let index = index_result.unwrap();
+        assert_eq!(index.len(), 1);
+        assert_eq!(index[0], page_end_game.id);
+
+        // Test last page results
+        search.offset = Some(GameSearchOffset{
+            value: page_end_game.title.clone(),
+            game_id: page_end_game.id.clone(),
+        });
+        let last_result = flashpoint.search_games(&search);
+        assert!(last_result.is_ok());
+        let last_page = last_result.unwrap();
+        assert_eq!(last_page.len(), 6541);
     }
 
     #[test]

@@ -285,11 +285,9 @@ pub fn create(conn: &mut Connection, partial: &PartialGame) -> Result<Game> {
 }
 
 pub fn save(conn: &mut Connection, game: &PartialGame) -> Result<Game> {
-    println!("saving");
     let existing_game_result = find(conn, game.id.as_str())?;
     if let Some(mut existing_game) = existing_game_result {
         existing_game.apply_partial(game);
-        println!("applying");
 
 
         // Process  any tag and platform changes
@@ -301,21 +299,16 @@ pub fn save(conn: &mut Connection, game: &PartialGame) -> Result<Game> {
         existing_game.platforms = vec![].into();
 
         for name in tags_copy {
-            println!("tag");
             let detailed_tag = tag::find_or_create(conn, &name)?;
             detailed_tags_copy.push(detailed_tag.clone());
             existing_game.tags.push(detailed_tag.name);
         }
 
         for name in platforms_copy {
-            println!("platform");
             let detailed_platform = platform::find_or_create(conn, &name)?;
             detailed_platforms_copy.push(detailed_platform.clone());
             existing_game.platforms.push(detailed_platform.name);
         }
-
-        println!("doing relations");
-
 
         // Update relations in database
         let tag_ids: Vec<i64> = detailed_tags_copy.iter().map(|t| t.id).collect::<Vec<i64>>();
@@ -558,7 +551,6 @@ impl Default for PartialGame {
         }
     }
 }
-
 
 impl Default for Game {
     fn default() -> Self {

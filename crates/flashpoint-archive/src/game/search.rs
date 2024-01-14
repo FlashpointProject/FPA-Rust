@@ -1,20 +1,48 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, Result, OptionalExtension};
 
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
 
+#[derive(Debug, Clone)]
 pub struct GameSearch {
     pub filter: GameFilter,
     pub load_relations: GameSearchRelations,
+    pub order: GameSearchOrder,
+    pub offset: Option<GameSearchOffset>,
     pub limit: i64,
     pub slim: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct GameSearchOffset {
+    pub value: String,
+    pub game_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GameSearchOrder {
+    pub column: GameSearchSortable,
+    pub direction: GameSearchDirection,
+}
+
+#[derive(Debug, Clone)]
+pub enum GameSearchSortable {
+    TITLE,
+}
+
+#[derive(Debug, Clone)]
+pub enum GameSearchDirection {
+    ASC,
+    DESC,
+}
+
+#[derive(Debug, Clone)]
 pub struct GameSearchRelations {
     pub tags: bool,
     pub platforms: bool,
     pub game_data: bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct GameFilter {
     pub subfilters: Vec<GameFilter>,
     pub whitelist: FieldFilter,
@@ -24,6 +52,7 @@ pub struct GameFilter {
     pub match_any: bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct FieldFilter {
     pub generic: Option<Vec<String>>,
     pub library: Option<Vec<String>>,
@@ -39,6 +68,11 @@ impl Default for GameSearch {
         GameSearch {
             filter: GameFilter::default(),
             load_relations: GameSearchRelations::default(),
+            order: GameSearchOrder {
+                column: GameSearchSortable::TITLE,
+                direction: GameSearchDirection::ASC,
+            },
+            offset: None,
             limit: 1000,
             slim: false,
         }
@@ -106,37 +140,72 @@ macro_rules! exact_blacklist_clause {
     };
 }
 
+const COUNT_QUERY: &str = "SELECT COUNT(*) FROM game";
+
+const RESULTS_QUERY: &str = "SELECT id, title, alternateTitles, series, developer, publisher, platformsStr, \
+platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
+tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
+originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
+activeGameConfigId, activeGameConfigOwner, archiveState, library \
+FROM game";
+
+const SLIM_RESULTS_QUERY: &str = "SELECT id, title, series, developer, publisher, platformsStr, 
+platformName, tagsStr, library 
+FROM game";
+
+pub fn search_index(conn: &Connection, search: &GameSearch) -> Result<Vec<String>> {
+    let offset_column = match search.order.column {
+        GameSearchSortable::TITLE => "game.title"
+    };
+    let selection = format!("SELECT id, ROW_NUMBER() OVER (ORDER BY {}, id) AS rn FROM game", offset_column);
+    let (mut query, mut params) = build_search_query(search, &selection);
+    
+    // Add the weirdness
+    query = format!("SELECT id FROM ({}) WHERE rn % ? = 0", query);
+    params.push(search.limit.to_string());
+
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+    let mut ids = vec![];
+    let mut stmt = conn.prepare(&query)?;
+    let ids_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
+        row.get::<_, String>(0)
+    })?;
+    for i in ids_iter {
+        ids.push(i?);
+    }
+    Ok(ids)
+}
+
+pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
+    let mut countable_search = search.clone();
+    countable_search.limit = 99999999999;
+    let (query, params) = build_search_query(search, COUNT_QUERY);
+
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+    let count_result = conn.query_row(&query, params_as_refs.as_slice(), |row| {
+        row.get::<_, i64>(0)
+    }).optional()?;
+
+    match count_result {
+        Some(count) => Ok(count),
+        None => Ok(0)
+    }
+}
+
 // The search function that takes a connection and a GameSearch object
 pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
-    let mut query = match search.slim {
-        true =>  String::from("SELECT id, title, series, developer, publisher, platformsStr, 
-        platformName, tagsStr, library 
-        FROM game"),
-        false => String::from("SELECT id, title, alternateTitles, series, developer, publisher, platformsStr, \
-        platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
-        tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
-        originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-        activeGameConfigId, activeGameConfigOwner, archiveState, library \
-        FROM game")
+    let selection = match search.slim {
+        true => SLIM_RESULTS_QUERY,
+        false => RESULTS_QUERY
     };
+    let (query, params) = build_search_query(search, selection);
 
-    // Build the inner WHERE clause
-    let mut params: Vec<String> = vec![];
-    let where_clause = build_filter_query(&search.filter, &mut params);
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    // Combine all where clauses
-    if where_clause.len() > 0 {
-        query.push_str(" WHERE ");
-        query.push_str(&where_clause);
-    }
-
-    // Ordering
-    query.push_str(" ORDER BY game.title ASC");
-    let limit_query = format!(" LIMIT {}", search.limit);
-    query.push_str(&limit_query);
-
+    // TODO: Remove, can we add a debug option?
     println!("{}", format_query(&query, params.clone()));
 
     let mut games = Vec::new();
@@ -213,6 +282,56 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     }
 
     Ok(games)
+}
+
+fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<String>) {
+    let mut query = String::from(selection);
+
+    // Ordering
+    let order_column = match search.order.column {
+        GameSearchSortable::TITLE => "game.title"
+    };
+    let order_direction = match search.order.direction {
+        GameSearchDirection::ASC => "ASC",
+        GameSearchDirection::DESC => "DESC"
+    };
+
+    // Build the inner WHERE clause
+    let mut params: Vec<String> = vec![];
+    let where_clause = build_filter_query(&search.filter, &mut params);
+    if let Some(offset) = search.offset.clone() {
+        let offset_clause = match search.order.direction {
+            GameSearchDirection::ASC => {
+                format!(" WHERE ({} > ? OR ({} = ? AND game.id > ?))", order_column, order_column)
+            },
+            GameSearchDirection::DESC => {
+                format!(" WHERE ({} < ? OR ({} = ? AND game.id < ?))", order_column, order_column)
+            }
+        };
+        query.push_str(&offset_clause);
+        // Insert in reverse order
+        params.insert(0, offset.game_id.clone());
+        params.insert(0, offset.value.clone());
+        params.insert(0, offset.value.clone());
+    }
+
+    // Combine all where clauses
+    if where_clause.len() > 0 {
+        // Offset will begin WHERE itself, otherwise we're ANDing the offset
+        let start_clause = match search.offset {
+            Some(_) => " AND (",
+            None => " WHERE ("
+        };
+        query.push_str(start_clause);
+        query.push_str(&where_clause);
+        query.push_str(")");
+    }
+
+    query.push_str(format!(" ORDER BY {} {}, game.id {}", order_column, order_direction, order_direction).as_str());
+    let limit_query = format!(" LIMIT {}", search.limit);
+    query.push_str(&limit_query);
+
+    (query, params)
 }
 
 fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
