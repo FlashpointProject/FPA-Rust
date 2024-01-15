@@ -26,6 +26,9 @@ impl Flashpoint {
         }
     }
 
+    /// Load a new database for Flashpoint. Open databases will close.
+    /// 
+    /// `source` - Path to database file, or :memory: to open a fresh database in memory
     pub fn load_database(&self, source: &str) -> Result<()> {
         let mut conn_lock = self.conn.lock().unwrap();
         if let Some(conn) = conn_lock.take() {
@@ -39,9 +42,12 @@ impl Flashpoint {
             Connection::open(source).context(error::SqliteSnafu)?
         };
 
+        // Perform database migrations
         migration::up(&mut conn).context(error::DatabaseMigrationSnafu)?;
         conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
+        // Always make there's always a default tag category present 
         tag_category::find_or_create(&conn, "default").context(error::SqliteSnafu)?;
+        // Allow use of rarray() in SQL queries
         rusqlite::vtab::array::load_module(&conn).context(error::SqliteSnafu)?;
         *conn_lock = Some(conn);
         Ok(())
@@ -180,6 +186,11 @@ macro_rules! with_mut_connection {
             Err(_) => Err(Error::MutexLockFailed {}),
         }
     };
+}
+
+#[macro_export]
+macro_rules! debug_println {
+    ($($arg:tt)*) => (if ::std::cfg!(debug_assertions) { ::std::println!($($arg)*); })
 }
 
 #[cfg(test)]
@@ -387,5 +398,54 @@ mod tests {
         let detailed_tags = saved_game.detailed_tags.unwrap();
         assert_eq!(detailed_tags.len(), 2);
         assert_eq!(detailed_tags[0].name, "Action");
+    }
+
+    #[test]
+    fn parse_user_search_input() {
+        let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario"#;
+        let search_res = game::search::parse_user_input(input);
+        assert!(search_res.is_ok());
+        let search = search_res.unwrap();
+        assert!(search.filter.whitelist.generic.is_some());
+        assert_eq!(search.filter.whitelist.generic.unwrap()[0], "sonic");
+        assert!(search.filter.whitelist.title.is_some());
+        assert_eq!(search.filter.whitelist.title.unwrap()[0], "dog cat");
+        assert!(search.filter.blacklist.title.is_some());
+        assert_eq!(search.filter.blacklist.title.unwrap()[0], "cat dog");
+        assert!(search.filter.whitelist.tags.is_some());
+        assert_eq!(search.filter.whitelist.tags.unwrap()[0], "Action");
+        assert!(search.filter.blacklist.generic.is_some());
+        assert_eq!(search.filter.blacklist.generic.unwrap()[0], "mario");
+    }
+
+    #[test]
+    fn parse_user_quick_search_input() {
+        let input = r#"#Action -!Flash @"armor games" !"#;
+        let search_res = game::search::parse_user_input(input);
+        assert!(search_res.is_ok());
+        let search = search_res.unwrap();
+        assert!(search.filter.whitelist.tags.is_some());
+        assert_eq!(search.filter.whitelist.tags.unwrap()[0], "Action");
+        assert!(search.filter.blacklist.platforms.is_some());
+        assert_eq!(search.filter.blacklist.platforms.unwrap()[0], "Flash");
+        assert!(search.filter.whitelist.developer.is_some());
+        assert_eq!(search.filter.whitelist.developer.unwrap()[0], "armor games");
+        assert!(search.filter.whitelist.generic.is_some());
+        assert_eq!(search.filter.whitelist.generic.unwrap()[0], "!");
+    }
+
+    #[test]
+    fn parse_user_exact_search_input() {
+        let input = r#"=!Flash -=publisher:Newgrounds =sonic"#;
+        let search_res = game::search::parse_user_input(input);
+        assert!(search_res.is_ok());
+        let search = search_res.unwrap();
+        assert!(search.filter.exact_whitelist.platforms.is_some());
+        assert_eq!(search.filter.exact_whitelist.platforms.unwrap()[0], "Flash");
+        assert!(search.filter.exact_blacklist.publisher.is_some());
+        assert_eq!(search.filter.exact_blacklist.publisher.unwrap()[0], "Newgrounds");
+        assert!(search.filter.whitelist.generic.is_some());
+        assert!(search.filter.exact_whitelist.generic.is_none());
+        assert_eq!(search.filter.whitelist.generic.unwrap()[0], "=sonic");
     }
 }

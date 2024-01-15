@@ -1,5 +1,7 @@
 use rusqlite::{Connection, Result, OptionalExtension};
 
+use crate::debug_println;
+
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
 
 #[derive(Debug, Clone)]
@@ -61,6 +63,28 @@ pub struct FieldFilter {
     pub publisher: Option<Vec<String>>,
     pub series: Option<Vec<String>>,
     pub tags: Option<Vec<String>>,
+    pub platforms: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+struct ForcedGameFIlter {
+    pub whitelist: ForcedFieldFilter,
+    pub blacklist: ForcedFieldFilter,
+    pub exact_whitelist: ForcedFieldFilter,
+    pub exact_blacklist: ForcedFieldFilter,
+}
+
+
+#[derive(Debug, Clone)]
+struct ForcedFieldFilter {
+    pub generic: Vec<String>,
+    pub library: Vec<String>,
+    pub title: Vec<String>,
+    pub developer: Vec<String>,
+    pub publisher: Vec<String>,
+    pub series: Vec<String>,
+    pub tags: Vec<String>,
+    pub platforms: Vec<String>,
 }
 
 impl Default for GameSearch {
@@ -112,7 +136,139 @@ impl Default for FieldFilter {
             publisher: None,
             series: None,
             tags: None,
+            platforms: None,
         }
+    }
+}
+
+impl Default for ForcedGameFIlter {
+    fn default() -> Self {
+        ForcedGameFIlter {
+            whitelist: ForcedFieldFilter::default(),
+            blacklist: ForcedFieldFilter::default(),
+            exact_whitelist: ForcedFieldFilter::default(),
+            exact_blacklist: ForcedFieldFilter::default(),
+        }
+    }
+}
+
+impl Default for ForcedFieldFilter {
+    fn default() -> Self {
+        ForcedFieldFilter {
+            generic: vec![],
+            library: vec![],
+            title: vec![],
+            developer: vec![],
+            publisher: vec![],
+            series: vec![],
+            tags: vec![],
+            platforms: vec![],
+        }
+    }
+}
+
+impl From<&ForcedGameFIlter> for GameFilter {
+    fn from(value: &ForcedGameFIlter) -> Self {
+        let mut search = GameFilter::default();
+
+        // Whitelist
+
+        if value.whitelist.generic.len() > 0 {
+            search.whitelist.generic = Some(value.whitelist.generic.clone());
+        }
+        if value.whitelist.title.len() > 0 {
+            search.whitelist.title = Some(value.whitelist.title.clone());
+        }
+        if value.whitelist.developer.len() > 0 {
+            search.whitelist.developer = Some(value.whitelist.developer.clone());
+        }
+        if value.whitelist.publisher.len() > 0 {
+            search.whitelist.publisher = Some(value.whitelist.publisher.clone());
+        }
+        if value.whitelist.series.len() > 0 {
+            search.whitelist.series = Some(value.whitelist.series.clone());
+        }
+        if value.whitelist.tags.len() > 0 {
+            search.whitelist.tags = Some(value.whitelist.tags.clone());
+        }
+        if value.whitelist.platforms.len() > 0 {
+            search.whitelist.platforms = Some(value.whitelist.platforms.clone());
+        }
+
+        // Blacklist
+
+        if value.blacklist.generic.len() > 0 {
+            search.blacklist.generic = Some(value.blacklist.generic.clone());
+        }
+        if value.blacklist.title.len() > 0 {
+            search.blacklist.title = Some(value.blacklist.title.clone());
+        }
+        if value.blacklist.developer.len() > 0 {
+            search.blacklist.developer = Some(value.blacklist.developer.clone());
+        }
+        if value.blacklist.publisher.len() > 0 {
+            search.blacklist.publisher = Some(value.blacklist.publisher.clone());
+        }
+        if value.blacklist.series.len() > 0 {
+            search.blacklist.series = Some(value.blacklist.series.clone());
+        }
+        if value.blacklist.tags.len() > 0 {
+            search.blacklist.tags = Some(value.blacklist.tags.clone());
+        }
+        if value.blacklist.platforms.len() > 0 {
+            search.blacklist.platforms = Some(value.blacklist.platforms.clone());
+        }
+
+        // Exact whitelist
+
+        if value.exact_whitelist.generic.len() > 0 {
+            search.exact_whitelist.generic = Some(value.exact_whitelist.generic.clone());
+        }
+        if value.exact_whitelist.title.len() > 0 {
+            search.exact_whitelist.title = Some(value.exact_whitelist.title.clone());
+        }
+        if value.exact_whitelist.developer.len() > 0 {
+            search.exact_whitelist.developer = Some(value.exact_whitelist.developer.clone());
+        }
+        if value.exact_whitelist.publisher.len() > 0 {
+            search.exact_whitelist.publisher = Some(value.exact_whitelist.publisher.clone());
+        }
+        if value.exact_whitelist.series.len() > 0 {
+            search.exact_whitelist.series = Some(value.exact_whitelist.series.clone());
+        }
+        if value.exact_whitelist.tags.len() > 0 {
+            search.exact_whitelist.tags = Some(value.exact_whitelist.tags.clone());
+        }
+        if value.exact_whitelist.platforms.len() > 0 {
+            search.exact_whitelist.platforms = Some(value.exact_whitelist.platforms.clone());
+        }
+
+        // Exact blacklist
+
+
+        if value.exact_blacklist.generic.len() > 0 {
+            search.exact_blacklist.generic = Some(value.exact_blacklist.generic.clone());
+        }
+        if value.exact_blacklist.title.len() > 0 {
+            search.exact_blacklist.title = Some(value.exact_blacklist.title.clone());
+        }
+        if value.exact_blacklist.developer.len() > 0 {
+            search.exact_blacklist.developer = Some(value.exact_blacklist.developer.clone());
+        }
+        if value.exact_blacklist.publisher.len() > 0 {
+            search.exact_blacklist.publisher = Some(value.exact_blacklist.publisher.clone());
+        }
+        if value.exact_blacklist.series.len() > 0 {
+            search.exact_blacklist.series = Some(value.exact_blacklist.series.clone());
+        }
+        if value.exact_blacklist.tags.len() > 0 {
+            search.exact_blacklist.tags = Some(value.exact_blacklist.tags.clone());
+        }
+        if value.exact_blacklist.platforms.len() > 0 {
+            search.exact_blacklist.platforms = Some(value.exact_blacklist.platforms.clone());
+        }
+
+        search
     }
 }
 
@@ -179,6 +335,7 @@ pub fn search_index(conn: &Connection, search: &GameSearch) -> Result<Vec<String
 
 pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
     let mut countable_search = search.clone();
+    // Remove result limit for COUNT queries
     countable_search.limit = 99999999999;
     let (query, params) = build_search_query(search, COUNT_QUERY);
 
@@ -205,8 +362,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    // TODO: Remove, can we add a debug option?
-    println!("{}", format_query(&query, params.clone()));
+    debug_println!("{}", format_query(&query, params.clone()));
 
     let mut games = Vec::new();
 
@@ -527,4 +683,171 @@ fn format_query(query: &str, substitutions: Vec<String>) -> String {
     }
 
     formatted_query
+}
+
+pub fn parse_user_input(input: &str) -> crate::Result<GameSearch> {
+    let mut search = GameSearch::default();
+    let mut filter = ForcedGameFIlter::default();
+
+    let mut capturing_quotes = false;
+    let mut working_key = String::new();
+    let mut working_value = String::new();
+    let mut negative = false;
+    let mut exact = false;
+
+    for mut token in input.split_whitespace() {
+        // Value on the same scope as token to append to
+        let mut _t = "".to_owned();
+        debug_println!("token {}", token);
+        // Handle continued value capture if needed
+
+        if !capturing_quotes && token.len() > 1 {
+            // Not inside quotes, check for negation
+            if token.starts_with("-") {
+                negative = true;
+
+                token = token.strip_prefix("-").unwrap();
+            }
+
+            if token.len() > 1 {
+                let ch = token.chars().next().unwrap();
+                if ch == '=' {
+                    token = token.strip_prefix('=').unwrap();
+                    exact = true;
+                }
+            }
+
+            if token.len() > 1 {
+                debug_println!("checking token start");
+                // Check for quick search options preceding token
+                let ch = token.chars().next().unwrap();
+                debug_println!("start char: {}", ch);
+                match ch {
+                    '#' => {
+                        token = token.strip_prefix('#').unwrap();
+                        working_key = "tag".to_owned();
+                    },
+                    '!' => {
+                        token = token.strip_prefix('!').unwrap();
+                        working_key = "platform".to_owned();
+                    },
+                    '@' => {
+                        token = token.strip_prefix('@').unwrap();
+                        working_key = "developer".to_owned();
+                    }
+                    _ => {
+                        // No special token, check if we're preceding a key
+                        if !token.contains(':') && exact{
+                            // No key, is generic, do not use exact
+                            exact = false;
+                            _t = "=".to_owned() + token;
+                            token = &_t;
+                        }
+                    }
+                }
+            }
+
+        }
+
+        if token.starts_with('"') {
+            token = token.strip_prefix('"').unwrap();
+            // Opening quote
+            capturing_quotes = true;
+        }
+
+        if capturing_quotes {
+            // Inside quotes, add to working value
+            if working_value == "" {
+                // Start of value
+                working_value = token.to_owned();
+            } else {
+                // Continued value
+                working_value.push_str(&format!(" {}", token));
+            }
+        }
+
+        if token.ends_with('"') {
+            // Closing quote
+            capturing_quotes = false;
+            // Remove quote at end of working value, if doesn't exist then it's a broken quoted value
+            working_value = working_value.strip_suffix('"').unwrap().to_owned();
+        }
+
+        if capturing_quotes {
+            // Still in capture mode, get next token
+            continue;
+        }
+
+        if working_value == "" {
+            // No working input yet, check for key
+            let token_parts = token.split(":").collect::<Vec<&str>>();
+
+            if token_parts.len() > 1 {
+                // Has a key
+                working_key = token_parts[0].to_owned();
+                token = token_parts[1];
+            } else {
+                token = token_parts[0];
+            }
+
+            // Single value, must be value
+            if token.starts_with('"') && token.ends_with('"') {
+                // Fully inside quotes
+                token = token.strip_prefix('"').unwrap();
+                token = token.strip_suffix('"').unwrap();
+                working_value = token.to_owned();
+            } else {
+                if token.starts_with('"') {
+                    // Starts quotes
+                    token = token.strip_prefix('"').unwrap();
+                    capturing_quotes = true;
+                    working_value = token.to_owned();
+                    continue;
+                } else {
+                    // Not quoted
+                    working_value = token.to_owned();
+                }
+            }
+        }
+
+        if working_value != "" {
+            debug_println!("key: {}, value: {}, negative: {}", working_key, working_value, negative);
+
+            let mut list = match (negative, exact) {
+                (true, false) => filter.blacklist.clone(),
+                (false, false) => filter.whitelist.clone(),
+                (true, true) => filter.exact_blacklist.clone(),
+                (false, true) => filter.exact_whitelist.clone(),
+            };
+            let value = working_value.clone();
+
+            // Has a complete value, add to filter
+            match working_key.as_str() {
+                "library" => list.library.push(value),
+                "title" => list.title.push(value),
+                "developer" => list.developer.push(value),
+                "publisher" => list.publisher.push(value),
+                "series" => list.series.push(value),
+                "tag" => list.tags.push(value),
+                "platform" => list.platforms.push(value),
+                _ => list.generic.push(value),
+            }
+
+            match (negative, exact) {
+                (true, false) => filter.blacklist = list,
+                (false, false) => filter.whitelist = list,
+                (true, true) => filter.exact_blacklist = list,
+                (false, true) => filter.exact_whitelist = list,
+            }
+
+            negative = false;
+            exact = false;
+            working_value.clear();
+            working_key.clear();
+        }
+    }
+
+    search.filter = (&filter).into();
+
+    Ok(search)
 }
