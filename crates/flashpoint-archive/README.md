@@ -4,6 +4,10 @@ Rust library for accessing the local database and misc features of the Flashpoin
 
 Project website: https://flashpointarchive.org/
 
+## Feature flags
+
+`napi` - Adds napi-rs attrs to structs
+
 ## Usage
 
 ### User input example

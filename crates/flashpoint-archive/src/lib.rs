@@ -15,6 +15,10 @@ mod platform;
 mod tag;
 mod tag_category;
 
+#[cfg(feature = "napi")]
+#[macro_use]
+extern crate napi_derive;
+
 pub struct FlashpointArchive {
     conn: Mutex<Option<Connection>>,
 }

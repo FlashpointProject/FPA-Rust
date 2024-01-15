@@ -1,6 +1,6 @@
 [package]
 name = "flashpoint-archive"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 keywords = ["webgames", "archive", "flashpoint"]
@@ -18,9 +18,14 @@ rusqlite = { version = "0.30.0", features = ["chrono", "array", "bundled"] }
 snafu = "0.8.0"
 rusqlite_migration = "1.1.0"
 uuid = { version = "1.6.1", features = ["v4"] }
+napi-derive = { version = "2", optional = true }
+napi = { version = "2", features = ["chrono_date"], optional = true }
 
 [dev_dependencies]
 criterion = "0.5.1"
+
+[features]
+napi = ["dep:napi-derive", "dep:napi"]
 
 [[bench]]
 name = "db_bench"

@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use rusqlite::{Connection, Result, params, OptionalExtension};
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub id: i64,

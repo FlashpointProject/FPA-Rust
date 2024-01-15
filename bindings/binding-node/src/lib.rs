@@ -1,10 +1,10 @@
 use napi::{Result, Error, Status};
 use napi_derive::napi;
-use flashpoint_archive::Flashpoint;
+use flashpoint_archive::{FlashpointArchive, game::{search::GameSearch, Game}};
 
 #[napi(js_name = "Flashpoint")]
 pub struct FlashpointNode {
-    flashpoint: Flashpoint
+    flashpoint: FlashpointArchive
 }
 
 #[napi]
@@ -12,7 +12,7 @@ impl FlashpointNode {
     #[napi(constructor)]
     pub fn new() -> Self {
         FlashpointNode {
-            flashpoint: Flashpoint::new()
+            flashpoint: FlashpointArchive::new()
         }
     }
 
@@ -24,8 +24,8 @@ impl FlashpointNode {
     }
 
     #[napi]
-    pub fn get_total(&self, table_name: String) -> Result<i64> {
-        self.flashpoint.get_total(table_name.as_str()).map_err(|e| {
+    pub fn search_games(&self, search: GameSearch) -> Result<Vec<Game>> {
+        self.flashpoint.search_games(&search).map_err(|e| {
             Error::new(Status::GenericFailure, e)
         })
     }

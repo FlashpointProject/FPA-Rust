@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = "2"
 napi-derive = "2"
-flashpoint-archive = { path = "../../crates/flashpoint-archive" }
+flashpoint-archive = { version = "0.1.1", features = ["napi"] }
 
 [build-dependencies]
 napi-build = "2"

@@ -11,26 +11,31 @@ use crate::{tag::{Tag, self}, platform, game_data::GameData};
 
 pub mod search;
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
-pub struct TagVec(Vec<String>);
+pub struct TagVec {
+   pub inner: Vec<String>
+}
 
 impl Deref for TagVec {
     type Target = Vec<String>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
 impl DerefMut for TagVec {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.inner
     }
 }
 
 impl Default for TagVec {
     fn default() -> Self {
-        TagVec(vec![])
+        TagVec {
+            inner: vec![]
+        }
     }
 }
 
@@ -39,14 +44,16 @@ impl IntoIterator for TagVec {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.inner.into_iter()
     }
 }
 
 impl From<Vec<&str>> for TagVec {
     fn from(vec: Vec<&str>) -> Self {
         let strings: Vec<String> = vec.iter().map(|&s| s.to_string()).collect();
-        TagVec(strings)
+        TagVec {
+            inner: strings
+        }
     }
 }
 
@@ -69,7 +76,9 @@ impl FromDelimitedString for TagVec {
             .filter(|part| !part.is_empty())
             .collect();
 
-        Ok(TagVec(values))
+        Ok(TagVec{
+            inner: values
+        })
     }
 }
 
@@ -87,6 +96,7 @@ impl FromSql for TagVec {
     }
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct Game {
     pub id: String,

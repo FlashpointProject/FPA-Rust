@@ -4,6 +4,7 @@ use crate::debug_println;
 
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameSearch {
     pub filter: GameFilter,
@@ -14,29 +15,36 @@ pub struct GameSearch {
     pub slim: bool,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameSearchOffset {
     pub value: String,
     pub game_id: String,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameSearchOrder {
     pub column: GameSearchSortable,
     pub direction: GameSearchDirection,
 }
 
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "napi", napi)]
+#[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[derive(Debug)]
 pub enum GameSearchSortable {
     TITLE,
 }
 
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "napi", napi)]
+#[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[derive(Debug)]
 pub enum GameSearchDirection {
     ASC,
     DESC,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameSearchRelations {
     pub tags: bool,
@@ -44,6 +52,7 @@ pub struct GameSearchRelations {
     pub game_data: bool,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameFilter {
     pub subfilters: Vec<GameFilter>,
@@ -54,6 +63,7 @@ pub struct GameFilter {
     pub match_any: bool,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct FieldFilter {
     pub generic: Option<Vec<String>>,
@@ -73,7 +83,6 @@ struct ForcedGameFIlter {
     pub exact_whitelist: ForcedFieldFilter,
     pub exact_blacklist: ForcedFieldFilter,
 }
-
 
 #[derive(Debug, Clone)]
 struct ForcedFieldFilter {

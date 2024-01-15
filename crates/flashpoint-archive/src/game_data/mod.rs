@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 
+#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameData {
     pub id: i64,
