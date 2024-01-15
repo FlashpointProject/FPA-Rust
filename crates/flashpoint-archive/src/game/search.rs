@@ -685,7 +685,7 @@ fn format_query(query: &str, substitutions: Vec<String>) -> String {
     formatted_query
 }
 
-pub fn parse_user_input(input: &str) -> crate::Result<GameSearch> {
+pub fn parse_user_input(input: &str) -> GameSearch {
     let mut search = GameSearch::default();
     let mut filter = ForcedGameFIlter::default();
 
@@ -849,5 +849,5 @@ pub fn parse_user_input(input: &str) -> crate::Result<GameSearch> {
 
     search.filter = (&filter).into();
 
-    Ok(search)
+    search
 }

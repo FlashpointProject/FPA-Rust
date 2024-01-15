@@ -1,12 +1,12 @@
 use std::{fs::File, io::{BufReader, BufRead}, time::Duration};
 use criterion::{Criterion, criterion_group, criterion_main};
-use flashpoint_archive::{Flashpoint, game::search::GameFilter};
+use flashpoint_archive::{FlashpointArchive, game::search::GameFilter};
 use flashpoint_archive::game::search::GameSearch;
 
 const TEST_DATABASE: &str = "benches/flashpoint.sqlite";
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let flashpoint = Flashpoint::new();
+    let flashpoint = FlashpointArchive::new();
     flashpoint.load_database(TEST_DATABASE).expect("Failed to open database");
     let rand_file = File::open("benches/1k_rand.txt").expect("Failed to open file");
     let rand_reader = BufReader::new(rand_file);

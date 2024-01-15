@@ -15,13 +15,13 @@ mod platform;
 mod tag;
 mod tag_category;
 
-pub struct Flashpoint {
+pub struct FlashpointArchive {
     conn: Mutex<Option<Connection>>,
 }
 
-impl Flashpoint {
-    pub fn new() -> Flashpoint {
-        Flashpoint {
+impl FlashpointArchive {
+    pub fn new() -> FlashpointArchive {
+        FlashpointArchive {
             conn: Mutex::new(None),
         }
     }
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn database_not_initialized() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let result = flashpoint.count_games();
         assert!(result.is_err());
 
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn count_games() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let result = flashpoint.count_games();
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn search_full_scan() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn search_tags_or() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn search_tags_and() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn search_tags_and_or_combined() {
         // Has 'Action' or 'Adventure', but is missing 'Sonic The Hedgehog'
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn find_game() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let result = flashpoint.find_game("00deff25-5cd2-40d1-a0e7-151d82ce16c5");
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn tag_categories() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(":memory:");
         assert!(create.is_ok());
         let partial_tc = tag_category::PartialTagCategory {
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn create_and_save_game() {
-        let flashpoint = Flashpoint::new();
+        let flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(":memory:");
         assert!(create.is_ok());
         let partial_game = game::PartialGame {
@@ -405,9 +405,7 @@ mod tests {
     #[test]
     fn parse_user_search_input() {
         let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario"#;
-        let search_res = game::search::parse_user_input(input);
-        assert!(search_res.is_ok());
-        let search = search_res.unwrap();
+        let search = game::search::parse_user_input(input);
         assert!(search.filter.whitelist.generic.is_some());
         assert_eq!(search.filter.whitelist.generic.unwrap()[0], "sonic");
         assert!(search.filter.whitelist.title.is_some());
@@ -423,9 +421,7 @@ mod tests {
     #[test]
     fn parse_user_quick_search_input() {
         let input = r#"#Action -!Flash @"armor games" !"#;
-        let search_res = game::search::parse_user_input(input);
-        assert!(search_res.is_ok());
-        let search = search_res.unwrap();
+        let search = game::search::parse_user_input(input);
         assert!(search.filter.whitelist.tags.is_some());
         assert_eq!(search.filter.whitelist.tags.unwrap()[0], "Action");
         assert!(search.filter.blacklist.platforms.is_some());
@@ -439,9 +435,7 @@ mod tests {
     #[test]
     fn parse_user_exact_search_input() {
         let input = r#"=!Flash -=publisher:Newgrounds =sonic"#;
-        let search_res = game::search::parse_user_input(input);
-        assert!(search_res.is_ok());
-        let search = search_res.unwrap();
+        let search = game::search::parse_user_input(input);
         assert!(search.filter.exact_whitelist.platforms.is_some());
         assert_eq!(search.filter.exact_whitelist.platforms.unwrap()[0], "Flash");
         assert!(search.filter.exact_blacklist.publisher.is_some());
