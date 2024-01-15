@@ -1,19 +1,13 @@
 use std::{fs::File, io::{BufReader, BufRead}, time::Duration};
-use std::fs;
 use criterion::{Criterion, criterion_group, criterion_main};
 use flashpoint_archive::{Flashpoint, game::search::GameFilter};
 use flashpoint_archive::game::search::GameSearch;
 
+const TEST_DATABASE: &str = "benches/flashpoint.sqlite";
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let source_file = "flashpoint.sqlite"; // Replace with the path to your source file
-    let destination_file = "/mnt/tmp/flashpoint.sqlite"; // Replace with the path to your destination file
-
-    // Copy the file from source to destination
-    fs::copy(source_file, destination_file).expect("Failed to set up database");
-
     let flashpoint = Flashpoint::new();
-    flashpoint.load_database(destination_file).expect("Failed to open database");
+    flashpoint.load_database(TEST_DATABASE).expect("Failed to open database");
     let rand_file = File::open("benches/1k_rand.txt").expect("Failed to open file");
     let rand_reader = BufReader::new(rand_file);
     let mut rand_game_ids = vec![];
@@ -46,7 +40,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
 
     // Benchmark the find_game function using the game_ids
-    let mut group = c.benchmark_group("1k-find");
+    let mut group = c.benchmark_group("benches");
     group.sample_size(10).measurement_time(Duration::from_secs(35));
     group.bench_function("find 1k", |b| {
         b.iter(|| {

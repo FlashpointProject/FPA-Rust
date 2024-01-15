@@ -200,6 +200,8 @@ mod tests {
 
     use super::*;
 
+    const TEST_DATABASE: &str = "benches/flashpoint.sqlite";
+
     #[test]
     fn database_not_initialized() {
         let flashpoint = Flashpoint::new();
@@ -219,7 +221,7 @@ mod tests {
     #[test]
     fn count_games() {
         let flashpoint = Flashpoint::new();
-        let create = flashpoint.load_database("flashpoint.sqlite");
+        let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let result = flashpoint.count_games();
         assert!(result.is_ok());
@@ -231,7 +233,7 @@ mod tests {
     #[test]
     fn search_full_scan() {
         let flashpoint = Flashpoint::new();
-        let create = flashpoint.load_database("flashpoint.sqlite");
+        let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
         search.limit = 99999999999;
@@ -245,7 +247,7 @@ mod tests {
     #[test]
     fn search_tags_or() {
         let flashpoint = Flashpoint::new();
-        let create = flashpoint.load_database("flashpoint.sqlite");
+        let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
         search.limit = 99999999999;
@@ -260,7 +262,7 @@ mod tests {
     #[test]
     fn search_tags_and() {
         let flashpoint = Flashpoint::new();
-        let create = flashpoint.load_database("flashpoint.sqlite");
+        let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
         search.limit = 99999999999;
@@ -276,7 +278,7 @@ mod tests {
     fn search_tags_and_or_combined() {
         // Has 'Action' or 'Adventure', but is missing 'Sonic The Hedgehog'
         let flashpoint = Flashpoint::new();
-        let create = flashpoint.load_database("flashpoint.sqlite");
+        let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
         let mut inner_filter = game::search::GameFilter::default();
@@ -324,7 +326,7 @@ mod tests {
     #[test]
     fn find_game() {
         let flashpoint = Flashpoint::new();
-        let create = flashpoint.load_database("flashpoint.sqlite");
+        let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let result = flashpoint.find_game("00deff25-5cd2-40d1-a0e7-151d82ce16c5");
         assert!(result.is_ok());
