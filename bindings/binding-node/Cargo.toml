@@ -9,9 +9,9 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = "2"
+napi = { version = "2", features = ["async"] }
 napi-derive = "2"
-flashpoint-archive = { version = "0.1.1", features = ["napi"] }
+flashpoint-archive = { path = "../../crates/flashpoint-archive", features = ["napi"] }
 
 [build-dependencies]
 napi-build = "2"

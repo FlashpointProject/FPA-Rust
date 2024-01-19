@@ -1,6 +1,6 @@
 [package]
 name = "flashpoint-archive"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 keywords = ["webgames", "archive", "flashpoint"]
@@ -20,6 +20,9 @@ rusqlite_migration = "1.1.0"
 uuid = { version = "1.6.1", features = ["v4"] }
 napi-derive = { version = "2", optional = true }
 napi = { version = "2", features = ["chrono_date"], optional = true }
+r2d2_sqlite = "0.23.0"
+r2d2 = "0.8"
+tokio = { version = "1", features = ["full"] }
 
 [dev_dependencies]
 criterion = "0.5.1"

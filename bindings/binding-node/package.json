@@ -1,13 +1,14 @@
 {
-  "package": "flashpoint",
+  "name": "flashpoint-archive",
+  "version": "0.1.2",
   "devDependencies": {
     "@napi-rs/cli": "^2.0.0"
   },
   "napi": {
-    "name": "flashpoint"
+    "name": "flashpoint-archive"
   },
   "scripts": {
-    "build": "napi build --release --platform --dts index.d.ts --js index.js",
+    "build": "napi build --release --platform --dts index.d.ts --js index.js && node build.mjs",
     "build:debug": "napi build"
   }
 }

@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Result, OptionalExtension};
 
-use crate::debug_println;
+use crate::{debug_println, game::get_game_add_apps};
 
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
 
@@ -31,9 +31,10 @@ pub struct GameSearchOrder {
 
 #[cfg_attr(feature = "napi", napi)]
 #[cfg_attr(not(feature = "napi"), derive(Clone))]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GameSearchSortable {
     TITLE,
+    RANDOM,
 }
 
 #[cfg_attr(feature = "napi", napi)]
@@ -50,6 +51,7 @@ pub struct GameSearchRelations {
     pub tags: bool,
     pub platforms: bool,
     pub game_data: bool,
+    pub add_apps: bool,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -96,6 +98,14 @@ struct ForcedFieldFilter {
     pub platforms: Vec<String>,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct PageTuple {
+    pub id: String,
+    pub order_val: String,
+    pub title: String,
+}
+
 impl Default for GameSearch {
     fn default() -> Self {
         GameSearch {
@@ -131,6 +141,7 @@ impl Default for GameSearchRelations {
             tags: false,
             platforms: false,
             game_data: false,
+            add_apps: false,
         }
     }
 }
@@ -311,35 +322,47 @@ const RESULTS_QUERY: &str = "SELECT id, title, alternateTitles, series, develope
 platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
 tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
 originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-activeGameConfigId, activeGameConfigOwner, archiveState, library \
+activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter \
 FROM game";
 
 const SLIM_RESULTS_QUERY: &str = "SELECT id, title, series, developer, publisher, platformsStr, 
 platformName, tagsStr, library 
 FROM game";
 
-pub fn search_index(conn: &Connection, search: &GameSearch) -> Result<Vec<String>> {
-    let offset_column = match search.order.column {
-        GameSearchSortable::TITLE => "game.title"
+pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<PageTuple>> {
+    let order_column = match search.order.column {
+        GameSearchSortable::TITLE => "game.title",
+        _ => "unknown",
     };
-    let selection = format!("SELECT id, ROW_NUMBER() OVER (ORDER BY {}, id) AS rn FROM game", offset_column);
+    let order_direction = match search.order.direction {
+        GameSearchDirection::ASC => "ASC",
+        GameSearchDirection::DESC => "DESC"
+    };
+    let page_size = search.limit;
+    search.limit = 9999999999;
+    let selection = format!("SELECT id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} {}, game.title {}, id) AS rn FROM game", order_column, order_column, order_direction, order_direction);
     let (mut query, mut params) = build_search_query(search, &selection);
     
     // Add the weirdness
-    query = format!("SELECT id FROM ({}) WHERE rn % ? = 0", query);
-    params.push(search.limit.to_string());
+    query = format!("SELECT id, {}, game.title FROM ({}) game WHERE rn % ? = 0", order_column, query);
+    params.push(page_size.to_string());
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    let mut ids = vec![];
+    let mut keyset = vec![];
+    debug_println!("{}", format_query(&query, params.clone()));
     let mut stmt = conn.prepare(&query)?;
-    let ids_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
-        row.get::<_, String>(0)
+    let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
+        Ok(PageTuple{
+            id: row.get(0)?,
+            order_val: row.get(1)?,
+            title: row.get(2)?,
+        })
     })?;
-    for i in ids_iter {
-        ids.push(i?);
+    for page_tuple in page_tuple_iter {
+        keyset.push(page_tuple?);
     }
-    Ok(ids)
+    Ok(keyset)
 }
 
 pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
@@ -424,9 +447,11 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 active_game_config_owner: row.get(28)?,
                 archive_state: row.get(29)?,
                 library: row.get(30)?,
+                play_counter: row.get(31)?,
                 detailed_platforms: None,
                 detailed_tags: None,
                 game_data: None,
+                add_apps: None,
             })
         },
     };
@@ -443,18 +468,29 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
         if search.load_relations.game_data {
             game.game_data = Some(get_game_data(conn, &game.id)?);
         }
+        if search.load_relations.add_apps {
+            game.add_apps = Some(get_game_add_apps(conn, &game.id)?);
+        }
         games.push(game);
     }
 
     Ok(games)
 }
 
+pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result<Vec<Game>> {
+    s.limit = count;
+    s.order.column = GameSearchSortable::RANDOM;
+    search(conn, &s)
+}
+
+
 fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<String>) {
     let mut query = String::from(selection);
 
     // Ordering
     let order_column = match search.order.column {
-        GameSearchSortable::TITLE => "game.title"
+        GameSearchSortable::TITLE => "game.title",
+        _ => "unknown"
     };
     let order_direction = match search.order.direction {
         GameSearchDirection::ASC => "ASC",
@@ -492,9 +528,15 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
         query.push_str(")");
     }
 
-    query.push_str(format!(" ORDER BY {} {}, game.id {}", order_column, order_direction, order_direction).as_str());
-    let limit_query = format!(" LIMIT {}", search.limit);
-    query.push_str(&limit_query);
+    if search.order.column == GameSearchSortable::RANDOM {
+        query.push_str(" ORDER BY RANDOM()");
+        let limit_query = format!(" LIMIT {}", search.limit);
+        query.push_str(&limit_query);
+    } else {
+        query.push_str(format!(" ORDER BY {} {}, game.title {}, game.id {}", order_column, order_direction, order_direction, order_direction).as_str());
+        let limit_query = format!(" LIMIT {}", search.limit);
+        query.push_str(&limit_query);
+    }
 
     (query, params)
 }
@@ -504,7 +546,10 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
 
     if filter.subfilters.len() > 0 {
         for subfilter in filter.subfilters.iter() {
-            where_clauses.push(build_filter_query(subfilter, params));
+            let new_clause = build_filter_query(subfilter, params);
+            if new_clause != "" {
+                where_clauses.push(new_clause);
+            }
         }
     }
 

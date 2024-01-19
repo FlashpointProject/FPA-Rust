@@ -1,4 +1,5 @@
 {
     "rust-analyzer.showUnlinkedFileNotification": false,
-    "rust-analyzer.linkedProjects": ["bindings/Cargo.toml"]
+    "rust-analyzer.linkedProjects": ["bindings/Cargo.toml"],
+    "rust-analyzer.files.excludeDirs": ["bindings/target"]
 }
