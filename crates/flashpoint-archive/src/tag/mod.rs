@@ -282,6 +282,9 @@ pub fn merge_tag(conn: &mut Connection, name: &str, merged_into: &str) -> Result
 }
 
 pub fn save(conn: &mut Connection, partial: &PartialTag) -> Result<Tag> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
     let mut tag = match find_by_id(conn, partial.id)? {
         Some(t) => t,
         None => return Err(rusqlite::Error::QueryReturnedNoRows)

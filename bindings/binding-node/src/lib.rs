@@ -280,6 +280,13 @@ impl FlashpointNode {
     }
 
     #[napi]
+    pub async fn new_tag_filter_index(&self, mut search: GameSearch) -> Result<()> {
+        self.flashpoint.new_tag_filter_index(&mut search).await.map_err(|e| {
+            Error::new(Status::GenericFailure, e)
+        })
+    }
+
+    #[napi]
     pub async fn find_all_game_libraries(&self) -> Result<Vec<String>> {
         self.flashpoint.find_all_game_libraries().await.map_err(|e| {
             Error::new(Status::GenericFailure, e)

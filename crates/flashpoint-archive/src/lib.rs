@@ -51,8 +51,6 @@ impl FlashpointArchive {
         conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
         // Always make there's always a default tag category present 
         tag_category::find_or_create(&conn, "default", None).context(error::SqliteSnafu)?;
-        // Allow use of rarray() in SQL queries
-        rusqlite::vtab::array::load_module(&conn).context(error::SqliteSnafu)?;
 
         self.pool = Some(pool);
 
@@ -273,6 +271,12 @@ impl FlashpointArchive {
         })
     }
 
+    pub async fn new_tag_filter_index(&self, search: &mut GameSearch) -> Result<()> {
+        with_connection!(&self.pool, |conn| {
+            game::search::new_tag_filter_index(conn, search).context(error::SqliteSnafu)
+        })
+    }
+
     pub async fn find_all_game_libraries(&self) -> Result<Vec<String>> {
         with_connection!(&self.pool, |conn| {
             game::find_libraries(conn).context(error::SqliteSnafu)
@@ -341,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn database_not_initialized() {
-        let mut flashpoint = FlashpointArchive::new();
+        let flashpoint = FlashpointArchive::new();
         let result = flashpoint.count_games().await;
         assert!(result.is_err());
 
@@ -453,6 +457,7 @@ mod tests {
         search.offset = Some(GameSearchOffset{
             value: page_end_game.title.clone(),
             game_id: page_end_game.id.clone(),
+            title: page_end_game.title.clone(),
         });
         let last_result = flashpoint.search_games(&search).await;
         assert!(last_result.is_ok());

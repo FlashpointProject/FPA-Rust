@@ -390,6 +390,9 @@ pub fn create(conn: &mut Connection, partial: &PartialGame) -> Result<Game> {
 }
 
 pub fn save(conn: &mut Connection, game: &PartialGame) -> Result<Game> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
     let existing_game_result = find(conn, game.id.as_str())?;
     if let Some(mut existing_game) = existing_game_result {
         existing_game.apply_partial(game);

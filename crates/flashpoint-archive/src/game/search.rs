@@ -1,8 +1,39 @@
-use rusqlite::{Connection, Result, OptionalExtension};
+use std::{fmt::Display, rc::Rc};
+
+use rusqlite::{Connection, Result, OptionalExtension, ToSql, types::{ToSqlOutput, Value}, params};
 
 use crate::{debug_println, game::get_game_add_apps};
 
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
+
+#[derive(Debug, Clone)]
+enum StringOrVec {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl ToSql for StringOrVec {
+    fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
+        match self {
+            StringOrVec::Single(s) => {
+                Ok(ToSqlOutput::from(s.as_str()))
+            },
+            StringOrVec::Multiple(m) => {
+                let v = Rc::new(m.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
+                Ok(ToSqlOutput::Array(v))
+            }
+        }
+    }
+}
+
+impl Display for StringOrVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StringOrVec::Single(s) => f.write_str(s),
+            StringOrVec::Multiple(m) => f.write_str(format!("'{}'", m.join("', '")).as_str())
+        }
+    }
+}
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
@@ -13,12 +44,14 @@ pub struct GameSearch {
     pub offset: Option<GameSearchOffset>,
     pub limit: i64,
     pub slim: bool,
+    pub with_tag_filter: Option<Vec<String>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameSearchOffset {
     pub value: String,
+    pub title: String, // Secondary sort always
     pub game_id: String,
 }
 
@@ -118,6 +151,7 @@ impl Default for GameSearch {
             offset: None,
             limit: 1000,
             slim: false,
+            with_tag_filter: None,
         }
     }
 }
@@ -318,18 +352,32 @@ macro_rules! exact_blacklist_clause {
 
 const COUNT_QUERY: &str = "SELECT COUNT(*) FROM game";
 
-const RESULTS_QUERY: &str = "SELECT id, title, alternateTitles, series, developer, publisher, platformsStr, \
+const RESULTS_QUERY: &str = "SELECT game.id, title, alternateTitles, series, developer, publisher, platformsStr, \
 platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
 tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
 originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
 activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter \
 FROM game";
 
-const SLIM_RESULTS_QUERY: &str = "SELECT id, title, series, developer, publisher, platformsStr, 
+const SLIM_RESULTS_QUERY: &str = "SELECT game.id, title, series, developer, publisher, platformsStr, 
 platformName, tagsStr, library 
 FROM game";
 
+const TAG_FILTER_INDEX_QUERY: &str = "INSERT INTO tag_filter_index (id) SELECT game.id FROM game";
+
 pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<PageTuple>> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
+    // Update tag filter indexing
+    if let Some(tags) = &search.with_tag_filter {
+        let mut filtered_search = GameSearch::default();
+        filtered_search.limit = 999999999;
+        filtered_search.filter.exact_blacklist.tags = Some(tags.to_vec());
+        filtered_search.filter.match_any = true;
+        new_tag_filter_index(conn, &mut filtered_search)?;
+    }
+
     let order_column = match search.order.column {
         GameSearchSortable::TITLE => "game.title",
         _ => "unknown",
@@ -340,12 +388,12 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
     };
     let page_size = search.limit;
     search.limit = 9999999999;
-    let selection = format!("SELECT id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} {}, game.title {}, id) AS rn FROM game", order_column, order_column, order_direction, order_direction);
+    let selection = format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction);
     let (mut query, mut params) = build_search_query(search, &selection);
     
     // Add the weirdness
-    query = format!("SELECT id, {}, game.title FROM ({}) game WHERE rn % ? = 0", order_column, query);
-    params.push(page_size.to_string());
+    query = format!("SELECT game.id, {}, game.title FROM ({}) game WHERE rn % ? = 0", order_column, query);
+    params.push(StringOrVec::Single(page_size.to_string()));
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
@@ -366,6 +414,9 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
 }
 
 pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
     let mut countable_search = search.clone();
     // Remove result limit for COUNT queries
     countable_search.limit = 99999999999;
@@ -385,6 +436,9 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
 
 // The search function that takes a connection and a GameSearch object
 pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
     let selection = match search.slim {
         true => SLIM_RESULTS_QUERY,
         false => RESULTS_QUERY
@@ -393,8 +447,6 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
 
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-
-    debug_println!("{}", format_query(&query, params.clone()));
 
     let mut games = Vec::new();
 
@@ -484,7 +536,7 @@ pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result
 }
 
 
-fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<String>) {
+fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<StringOrVec>) {
     let mut query = String::from(selection);
 
     // Ordering
@@ -498,22 +550,32 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
     };
 
     // Build the inner WHERE clause
-    let mut params: Vec<String> = vec![];
+    let mut params: Vec<StringOrVec> = vec![];
     let where_clause = build_filter_query(&search.filter, &mut params);
+    
+
+    // Add tag filtering
+    if let Some(tags) = &search.with_tag_filter {
+        if tags.len() > 0 {
+            query.push_str(" INNER JOIN tag_filter_index ON game.id = tag_filter_index.id");
+        }
+    }
+
+    // Add offset
     if let Some(offset) = search.offset.clone() {
         let offset_clause = match search.order.direction {
             GameSearchDirection::ASC => {
-                format!(" WHERE ({} > ? OR ({} = ? AND game.id > ?))", order_column, order_column)
+                format!(" WHERE ({}, game.title, game.id) > (?, ?, ?)", order_column)
             },
             GameSearchDirection::DESC => {
-                format!(" WHERE ({} < ? OR ({} = ? AND game.id < ?))", order_column, order_column)
+                format!(" WHERE ({}, game.title, game.id) < (?, ?, ?)", order_column)
             }
         };
         query.push_str(&offset_clause);
         // Insert in reverse order
-        params.insert(0, offset.game_id.clone());
-        params.insert(0, offset.value.clone());
-        params.insert(0, offset.value.clone());
+        params.insert(0, StringOrVec::Single(offset.game_id.clone()));
+        params.insert(0, StringOrVec::Single(offset.title.clone()));
+        params.insert(0, StringOrVec::Single(offset.value.clone()));
     }
 
     // Combine all where clauses
@@ -533,7 +595,11 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
         let limit_query = format!(" LIMIT {}", search.limit);
         query.push_str(&limit_query);
     } else {
-        query.push_str(format!(" ORDER BY {} {}, game.title {}, game.id {}", order_column, order_direction, order_direction, order_direction).as_str());
+        if order_column == "game.title" {
+            query.push_str(format!(" ORDER BY game.title {}", order_direction).as_str());
+        } else {
+            query.push_str(format!(" ORDER BY {} {}, game.title {}", order_column, order_direction, order_direction).as_str());
+        }
         let limit_query = format!(" LIMIT {}", search.limit);
         query.push_str(&limit_query);
     }
@@ -541,7 +607,7 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
     (query, params)
 }
 
-fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
+fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> String {
     let mut where_clauses = Vec::new();
 
     if filter.subfilters.len() > 0 {
@@ -565,10 +631,10 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
             for value in value_list {
                 where_clauses.push(format!("game.{} {} ?", field_name, comparator));
                 if exact {
-                    params.push(value.clone());
+                    params.push(StringOrVec::Single(value.clone()));
                 } else {
                     let p = format!("%{}%", value);
-                    params.push(p);
+                    params.push(StringOrVec::Single(p));
                 }
             }
         }
@@ -601,44 +667,60 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
                 false => "IN",
             };
 
-            let mut inner_tag_queries = vec![];
-            for value in value_list {
+            // Inexact OR / Inexact AND / Exact AND
+            if exact && filter.match_any {
+                // Must be an exact OR
+                params.push(StringOrVec::Multiple(value_list.clone()));
+
+                let tag_query = format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                SELECT tagId FROM {}_alias WHERE name IN rarray(?)))", comparator, tag_name, tag_name, tag_name, tag_name);
+
+                where_clauses.push(tag_query);
+            } else {
+                let mut inner_tag_queries = vec![];
+
+                // Add parameters
                 if exact {
-                    inner_tag_queries.push("name = ?");
-                    params.push(value.clone());
-                } else {
-                    inner_tag_queries.push("name LIKE ?");
-                    let p = format!("%{}%", value);
-                    params.push(p);
-                }
-            }
-
-            let tag_query = match filter.match_any {
-                false => {
-                    if inner_tag_queries.len() == 1 {
-                        format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                            SELECT tagId FROM {}_alias WHERE {})
-                        )", comparator, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0])
-                    } else {
-                        let mut q = format!("SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                                SELECT tagId FROM {}_alias WHERE {}
-                            )", tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0]);
-                        for inner_tag_query in inner_tag_queries.iter().skip(1) {
-                            let part = format!(" AND gameId IN (
-                                SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                                    SELECT tagId FROM {}_alias WHERE {}
-                                )
-                            )", tag_name, tag_name, tag_name, tag_name, inner_tag_query);
-                            q.push_str(&part);
-                        }
-                        format!("game.id {} ({})", comparator, q)
+                    for value in value_list {
+                        inner_tag_queries.push("name = ?");
+                        params.push(StringOrVec::Single(value.clone()));
                     }
-                },
-                true => format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                SELECT tagId FROM {}_alias WHERE {}))", comparator, tag_name, tag_name, tag_name, tag_name, inner_tag_queries.join(" OR "))
-            };
+                } else {
+                    for value in value_list {
+                        inner_tag_queries.push("name LIKE ?");
+                        let p = format!("%{}%", value);
+                        params.push(StringOrVec::Single(p));
+                    }
+                }
 
-            where_clauses.push(tag_query);
+                // Add query       
+                let tag_query = match filter.match_any {
+                    false => {
+                        if inner_tag_queries.len() == 1 {
+                            format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                                SELECT tagId FROM {}_alias WHERE {})
+                            )", comparator, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0])
+                        } else {
+                            let mut q = format!("SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                                    SELECT tagId FROM {}_alias WHERE {}
+                                )", tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0]);
+                            for inner_tag_query in inner_tag_queries.iter().skip(1) {
+                                let part = format!(" AND gameId IN (
+                                    SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                                        SELECT tagId FROM {}_alias WHERE {}
+                                    )
+                                )", tag_name, tag_name, tag_name, tag_name, inner_tag_query);
+                                q.push_str(&part);
+                            }
+                            format!("game.id {} ({})", comparator, q)
+                        }
+                    },
+                    true => format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                    SELECT tagId FROM {}_alias WHERE name IN {}))", comparator, tag_name, tag_name, tag_name, tag_name, inner_tag_queries.join(" OR "))
+                };
+
+                where_clauses.push(tag_query);
+            }
         }
     };
 
@@ -663,10 +745,10 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
                 for field_name in field_names.clone() {
                     multi_where_clauses.push(format!("game.{} {} ?", field_name, comparator));
                     if exact {
-                        params.push(value.clone());
+                        params.push(StringOrVec::Single(value.clone()));
                     } else {
                         let p = format!("%{}%", value);
-                        params.push(p);
+                        params.push(StringOrVec::Single(p));
                     }
                 }
             }
@@ -688,7 +770,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<String>) -> String {
     }
 }
 
-fn format_query(query: &str, substitutions: Vec<String>) -> String {
+fn format_query(query: &str, substitutions: Vec<StringOrVec>) -> String {
     let mut formatted_query = String::new();
     let mut trim_mode = false;
     let mut indent = 0;
@@ -737,6 +819,50 @@ fn format_query(query: &str, substitutions: Vec<String>) -> String {
     }
 
     formatted_query
+}
+
+pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Result<()> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
+    search.filter.match_any = true;
+
+    if search.filter.exact_blacklist.tags.is_none() {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    let mut tags = search.filter.exact_blacklist.tags.clone().unwrap();
+    tags.sort();
+    let tags_key = tags.join(";");
+
+    // Check against existing key
+    let existing_key: Option<String> = conn.query_row("SELECT key FROM tag_filter_index_info", (), |row| {
+        Ok(row.get(0)?)
+    }).optional()?;
+
+    if existing_key.is_some() {
+        if tags_key == existing_key.unwrap() {
+            // Same tag list already filtered, ignore
+            return Ok(());
+        }
+    }
+
+    conn.execute("DELETE FROM tag_filter_index", ())?; // Empty existing index
+
+    let (query, params) = build_search_query(search, TAG_FILTER_INDEX_QUERY);
+
+    // Convert the parameters array to something rusqlite understands
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+    let mut stmt = conn.prepare(query.as_str())?;
+    stmt.execute(params_as_refs.as_slice())?;
+
+    tags.sort();
+
+    conn.execute("DELETE FROM tag_filter_index_info", ())?; // Empty existing index info
+    conn.execute("INSERT INTO tag_filter_index_info (key) VALUES (?)", params![tags_key])?;
+
+    Ok(())
 }
 
 pub fn parse_user_input(input: &str) -> GameSearch {

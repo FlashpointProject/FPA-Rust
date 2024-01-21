@@ -1,14 +1,33 @@
 {
-  "name": "flashpoint-archive",
-  "version": "0.1.2",
+  "name": "@fparchive/flashpoint-archive",
+  "version": "0.2.0",
+  "main": "index.js",
+  "types": "index.d.ts",
   "devDependencies": {
-    "@napi-rs/cli": "^2.0.0"
+    "@napi-rs/cli": "^2.0.0",
+    "ava": "^6.0.1"
   },
   "napi": {
-    "name": "flashpoint-archive"
+    "name": "flashpoint-archive",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin"
+      ]
+    }
+  },
+  "ava": {
+    "timeout": "3m"
+  },
+  "engines": {
+    "node": ">= 10"
   },
   "scripts": {
+    "artifacts": "napi artifacts",
     "build": "napi build --release --platform --dts index.d.ts --js index.js && node build.mjs",
-    "build:debug": "napi build"
+    "build:debug": "napi build --platform --dts index.d.ts --js index.js && node build.mjs",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "ava",
+    "universal": "napi universal",
+    "version": "napi version"
   }
 }

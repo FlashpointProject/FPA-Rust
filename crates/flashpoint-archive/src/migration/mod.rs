@@ -194,6 +194,16 @@ pub fn get() -> Migrations<'static> {
             SET dateModified = REPLACE(SUBSTR(dateModified, 1, 19), 'T', ' ') || '.' || SUBSTR(dateModified, 21, 3)
             WHERE dateModified LIKE '____-__-__T__:__:__.__%';
             "#),
+        M::up(r#"
+            CREATE TABLE IF NOT EXISTS "tag_filter_index_info" (
+                "key" VARCHAR NOT NULL,
+                PRIMARY KEY("key")
+            );
+            CREATE TABLE IF NOT EXISTS "tag_filter_index" (
+                "id" VARCHAR NOT NULL,
+                PRIMARY KEY("id")
+            );
+            "#),
     ]);
 
     migrations
