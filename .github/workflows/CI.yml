@@ -12,7 +12,7 @@ defaults:
 'on':
   push:
     branches:
-      - main
+      - master
     tags-ignore:
       - '**'
     paths-ignore:
@@ -21,6 +21,9 @@ defaults:
       - '**/*.gitignore'
       - .editorconfig
       - docs/**
+      - crates/**
+      - ./Cargo.lock
+      - ./Cargo.toml
   pull_request: null
 jobs:
   build:
