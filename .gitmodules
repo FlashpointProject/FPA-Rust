@@ -1,0 +1,3 @@
+[submodule "bindings/binding-node"]
+	path = bindings/binding-node
+	url = https://github.com/FlashpointProject/FPA-Rust-Node-Binding.git
