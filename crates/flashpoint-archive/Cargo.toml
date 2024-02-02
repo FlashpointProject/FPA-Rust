@@ -18,17 +18,19 @@ rusqlite = { version = "0.30.0", features = ["chrono", "array", "bundled"] }
 snafu = "0.8.0"
 rusqlite_migration = "1.1.0"
 uuid = { version = "1.6.1", features = ["v4"] }
-napi-derive = { version = "2", optional = true }
-napi = { version = "2", features = ["chrono_date"], optional = true }
 r2d2_sqlite = "0.23.0"
 r2d2 = "0.8"
 tokio = { version = "1", features = ["full"] }
+napi = { version = "2", features = ["chrono_date"], optional = true }
+napi-derive = { version = "2", optional = true }
+serde = { version = "1", optional = true }
 
 [dev_dependencies]
-criterion = "0.5.1"
+criterion = { version = "0.5.1", features = ["async_tokio"] }
 
 [features]
 napi = ["dep:napi-derive", "dep:napi"]
+serde = ["dep:serde"]
 
 [[bench]]
 name = "db_bench"

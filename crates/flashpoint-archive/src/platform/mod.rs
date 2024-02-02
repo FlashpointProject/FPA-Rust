@@ -41,22 +41,19 @@ pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
     Ok(platforms)
 }
 
-pub fn create(conn: &mut Connection, name: &str) -> Result<Tag> {
+pub fn create(conn: &Connection, name: &str) -> Result<Tag> {
     // Create the alias
     let mut stmt = "INSERT INTO platform_alias (name, platformId) VALUES(?, ?) RETURNING id";    
-    let tx = conn.transaction()?;
 
     // Create a new tag
-    let alias_id: i64 = tx.query_row(stmt, params![name, -1], |row| row.get(0))?;
+    let alias_id: i64 = conn.query_row(stmt, params![name, -1], |row| row.get(0))?;
 
     stmt = "INSERT INTO platform (primaryAliasId, description) VALUES (?, ?) RETURNING id";
-    let tag_id: i64 = tx.query_row(stmt, params![alias_id, ""], |row| row.get(0))?;
+    let tag_id: i64 = conn.query_row(stmt, params![alias_id, ""], |row| row.get(0))?;
 
     // Update tag alias with the new tag id
     stmt = "UPDATE platform_alias SET platformId = ? WHERE id = ?";
-    tx.execute(stmt, params![tag_id, alias_id])?;
-
-    tx.commit()?;
+    conn.execute(stmt, params![tag_id, alias_id])?;
 
     let new_tag_result = find_by_name(conn, name)?;
     if let Some(tag) = new_tag_result {
@@ -66,7 +63,7 @@ pub fn create(conn: &mut Connection, name: &str) -> Result<Tag> {
     }
 }
 
-pub fn find_or_create(conn: &mut Connection, name: &str) -> Result<Tag> {
+pub fn find_or_create(conn: &Connection, name: &str) -> Result<Tag> {
     let platform_result = find_by_name(conn, name)?;
     if let Some(platform) = platform_result {
         Ok(platform)
@@ -143,7 +140,7 @@ pub fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Tag>> {
     }
 }
 
-pub fn delete(conn: &mut Connection, name: &str) -> Result<()> {
+pub fn delete(conn: &Connection, name: &str) -> Result<()> {
     let tag = find_by_name(conn, name)?;
     match tag {
         Some(tag) => {
@@ -159,24 +156,20 @@ pub fn delete(conn: &mut Connection, name: &str) -> Result<()> {
             let games = game::search::search(conn, &search)?;
             println!("{} games", games.len());
 
-            let tx = conn.transaction()?;
-
             // Remove platform from games
             for game in games {
                 let new_tags = game.detailed_platforms.unwrap().iter().filter(|t| t.name != name).map(|t| t.name.clone()).collect::<Vec<String>>();
-                tx.execute("UPDATE game SET platformsStr = ? WHERE id = ?", params![new_tags.join("; "), game.id])?;
+                conn.execute("UPDATE game SET platformsStr = ? WHERE id = ?", params![new_tags.join("; "), game.id])?;
             }
 
             let mut stmt = "DELETE FROM game_platforms_platform WHERE platformId = ?";
-            tx.execute(stmt, params![tag.id])?;
+            conn.execute(stmt, params![tag.id])?;
 
             stmt = "DELETE FROM platform_alias WHERE platformId = ?";
-            tx.execute(stmt, params![tag.id])?;
+            conn.execute(stmt, params![tag.id])?;
 
             stmt = "DELETE FROM platform WHERE id = ?";
-            tx.execute(stmt, params![tag.id])?;
-
-            tx.commit()?;
+            conn.execute(stmt, params![tag.id])?;
 
             Ok(())
         },

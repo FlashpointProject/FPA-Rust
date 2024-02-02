@@ -4,7 +4,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 use snafu::ResultExt;
-use tag::{Tag, PartialTag};
+use tag::{PartialTag, Tag, TagSuggestion};
 use tag_category::{TagCategory, PartialTagCategory};
 use chrono::Utc;
 
@@ -87,6 +87,18 @@ impl FlashpointArchive {
         })
     }
 
+    pub async fn search_tag_suggestions(&self, partial: &str) -> Result<Vec<TagSuggestion>> {
+        with_connection!(&self.pool, |conn| {
+            tag::search_tag_suggestions(conn, "tag", partial).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn search_platform_suggestions(&self, partial: &str) -> Result<Vec<TagSuggestion>> {
+        with_connection!(&self.pool, |conn| {
+            tag::search_tag_suggestions(conn, "platform", partial).context(error::SqliteSnafu)
+        })
+    }
+
     pub async fn find_game(&self, id: &str) -> Result<Option<Game>> {
         with_connection!(&self.pool, |conn| {
             game::find(conn, id).context(error::SqliteSnafu)
@@ -94,23 +106,23 @@ impl FlashpointArchive {
     }
 
     pub async fn create_game(&self, partial_game: &PartialGame) -> Result<game::Game> {
-        with_mut_connection!(&self.pool, |conn| {
-            game::create(conn, partial_game).context(error::SqliteSnafu)
+        with_transaction!(&self.pool, |tx| {
+            game::create(tx, partial_game).context(error::SqliteSnafu)
         })
     }
 
     pub async fn save_game(&self, partial_game: &mut PartialGame) -> Result<Game> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |tx| {
             match partial_game.date_modified {
                 Some(_) => (),
                 None => partial_game.date_modified = Some(Utc::now().naive_utc()),
             }
-            game::save(conn, partial_game).context(error::SqliteSnafu)
+            game::save(tx, partial_game).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_game(&self, id: &str) -> Result<()> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             game::delete(conn, id).context(error::SqliteSnafu)
         })
     }
@@ -176,19 +188,19 @@ impl FlashpointArchive {
     }
 
     pub async fn create_tag(&self, name: &str, category: Option<String>) -> Result<Tag> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             tag::create(conn, name, category).context(error::SqliteSnafu)
         })
     }
 
     pub async fn save_tag(&self, partial: &PartialTag) -> Result<Tag> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             tag::save(conn, partial).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_tag(&self, name: &str) -> Result<()> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             tag::delete(conn, name).context(error::SqliteSnafu)
         })
     }
@@ -200,7 +212,7 @@ impl FlashpointArchive {
     }
 
     pub async fn merge_tags(&self, name: &str, merged_into: &str) -> Result<Tag> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             tag::merge_tag(conn, name, merged_into).context(error::SqliteSnafu)
         })
     }
@@ -224,13 +236,13 @@ impl FlashpointArchive {
     }
 
     pub async fn create_platform(&self, name: &str) -> Result<Tag> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             platform::create(conn, name).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_platform(&self, name: &str) -> Result<()> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             platform::delete(conn, name).context(error::SqliteSnafu)
         })
     }
@@ -284,7 +296,7 @@ impl FlashpointArchive {
     }
 
     pub async fn add_game_playtime(&self, game_id: &str, seconds: i64) -> Result<()> {
-        with_mut_connection!(&self.pool, |conn| {
+        with_transaction!(&self.pool, |conn| {
             game::add_playtime(conn, game_id, seconds).context(error::SqliteSnafu)
         })
     }
@@ -320,10 +332,16 @@ macro_rules! with_connection {
 }
 
 #[macro_export]
-macro_rules! with_mut_connection {
+macro_rules! with_transaction {
     ($pool:expr, $body:expr) => {
         match $pool {
-            Some(conn) => $body(&mut conn.get().unwrap()),
+            Some(conn) => {
+                let mut conn = conn.get().unwrap();
+                let tx = conn.transaction().context(error::SqliteSnafu)?;
+                let res = $body(&tx);
+                tx.commit().context(error::SqliteSnafu)?;
+                res
+            },
             None => return Err(Error::DatabaseNotInitialized)
         }
     };
@@ -488,6 +506,11 @@ mod tests {
         search.filter.exact_whitelist.library = Some(vec!["arcade".to_owned()]);
         search.filter.match_any = false;
         assert!(flashpoint.search_games_index(&mut search).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn parse_weird_user_input() {
+        let search = game::search::parse_user_input(r#"tag:"sonic""#);
     }
 
     #[tokio::test]
@@ -733,5 +756,19 @@ mod tests {
         assert_eq!(new_tag.name, "test");
         assert_eq!(new_tag.aliases.len(), 1);
         assert_eq!(new_tag.aliases[0], "test");
+    }
+
+    #[tokio::test]
+    async fn search_tag_suggestions() {
+        let mut flashpoint = FlashpointArchive::new();
+        assert!(flashpoint.load_database(":memory:").is_ok());
+        let new_tag_res = flashpoint.create_tag("Action", None).await;
+        assert!(new_tag_res.is_ok());
+        let suggs_res = flashpoint.search_tag_suggestions("Act").await;
+        assert!(suggs_res.is_ok());
+        assert_eq!(suggs_res.unwrap().len(), 1);
+        let suggs_bad_res = flashpoint.search_tag_suggestions("Adventure").await;
+        assert!(suggs_bad_res.is_ok());
+        assert_eq!(suggs_bad_res.unwrap().len(), 0);
     }
 }

@@ -2,11 +2,12 @@ use std::{fs::File, io::{BufReader, BufRead}, time::Duration};
 use criterion::{Criterion, criterion_group, criterion_main};
 use flashpoint_archive::{FlashpointArchive, game::search::GameFilter};
 use flashpoint_archive::game::search::GameSearch;
+use tokio::runtime::Runtime;
 
 const TEST_DATABASE: &str = "benches/flashpoint.sqlite";
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let flashpoint = FlashpointArchive::new();
+    let mut flashpoint = FlashpointArchive::new();
     flashpoint.load_database(TEST_DATABASE).expect("Failed to open database");
     let rand_file = File::open("benches/1k_rand.txt").expect("Failed to open file");
     let rand_reader = BufReader::new(rand_file);
@@ -43,24 +44,24 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("benches");
     group.sample_size(10).measurement_time(Duration::from_secs(35));
     group.bench_function("find 1k", |b| {
-        b.iter(|| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
             for id in &rand_game_ids {
-                flashpoint.find_game(id).expect("Failed to load game");
+                flashpoint.find_game(id).await.expect("Failed to load game");
             }
         })
     });
 
     group.bench_function("full scan", |b| {
-        b.iter(|| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
             let mut search = GameSearch::default();
             search.limit = 99999999999;
             search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
-            flashpoint.search_games(&search).expect("Failed to search");
+            flashpoint.search_games(&search).await.expect("Failed to search");
         })
     });
 
     group.bench_function("full scan with unoptimized tag filter groups", |b| {
-        b.iter(|| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
             let mut search = GameSearch::default();
             search.limit = 99999999999;
             let mut tag_filter = GameFilter::default();
@@ -68,35 +69,35 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             tag_filter.match_any = true;
             search.filter.subfilters.push(tag_filter);
             search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
-            flashpoint.search_games(&search).expect("Failed to search");
+            flashpoint.search_games(&search).await.expect("Failed to search");
         })
     });
 
     group.bench_function("search 15", |b| {
-        b.iter(|| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
             for search_term in &search_terms {
                 let mut search = GameSearch::default();
                 search.filter.whitelist.title = Some(vec![search_term.clone()]);
                 search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
-                flashpoint.search_games(&search).expect("Failed to search");
+                flashpoint.search_games(&search).await.expect("Failed to search");
             }
         })
     });
 
     group.bench_function("search 15 uncapped", |b| {
-        b.iter(|| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async{
             for search_term in &search_terms {
                 let mut search = GameSearch::default();
                 search.limit = 99999999999;
                 search.filter.whitelist.title = Some(vec![search_term.clone()]);
                 search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
-                flashpoint.search_games(&search).expect("Failed to search");
+                flashpoint.search_games(&search).await.expect("Failed to search");
             }
         })
     });
 
     group.bench_function("search 15 with relations", |b| {
-        b.iter(|| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
             for search_term in &search_terms {
                 let mut search = GameSearch::default();
                 search.load_relations.tags = true;
@@ -104,7 +105,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 search.load_relations.game_data = true;
                 search.filter.whitelist.title = Some(vec![search_term.clone()]);
                 search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
-                flashpoint.search_games(&search).expect("Failed to search");
+                flashpoint.search_games(&search).await.expect("Failed to search");
             }
         })
     });

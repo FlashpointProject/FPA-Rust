@@ -27,6 +27,15 @@ pub struct PartialTag {
     pub category: Option<String>,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct TagSuggestion {
+    pub id: i64,
+    pub name: String,
+    pub matched_from: String,
+    pub games_count: i64
+}
+
 impl Tag {
     fn apply_partial(&mut self, partial: &PartialTag) {
         self.name = partial.name.clone();
@@ -86,24 +95,20 @@ pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
     Ok(tags)
 }
 
-pub fn create(conn: &mut Connection, name: &str, category: Option<String>) -> Result<Tag> {
+pub fn create(conn: &Connection, name: &str, category: Option<String>) -> Result<Tag> {
     // Create the alias
     let mut stmt = "INSERT INTO tag_alias (name, tagId) VALUES(?, ?) RETURNING id";
     let category = tag_category::find_or_create(conn, category.unwrap_or_else(|| "default".to_owned()).as_str(), None)?;
 
-    let tx = conn.transaction()?;
-
     // Create a new tag
-    let alias_id: i64 = tx.query_row(stmt, params![name, -1], |row| row.get(0))?;
+    let alias_id: i64 = conn.query_row(stmt, params![name, -1], |row| row.get(0))?;
 
     stmt = "INSERT INTO tag (primaryAliasId, description, categoryId) VALUES (?, ?, ?) RETURNING id";
-    let tag_id: i64 = tx.query_row(stmt, params![alias_id, "", category.id], |row| row.get(0))?;
+    let tag_id: i64 = conn.query_row(stmt, params![alias_id, "", category.id], |row| row.get(0))?;
 
     // Update tag alias with the new tag id
     stmt = "UPDATE tag_alias SET tagId = ? WHERE id = ?";
-    tx.execute(stmt, params![tag_id, alias_id])?;
-
-    tx.commit()?;
+    conn.execute(stmt, params![tag_id, alias_id])?;
 
     let new_tag_result = find_by_name(conn, name)?;
     if let Some(tag) = new_tag_result {
@@ -113,7 +118,7 @@ pub fn create(conn: &mut Connection, name: &str, category: Option<String>) -> Re
     }
 }
 
-pub fn find_or_create(conn: &mut Connection, name: &str) -> Result<Tag> {
+pub fn find_or_create(conn: &Connection, name: &str) -> Result<Tag> {
     let tag_result = find_by_name(conn, name)?;
     if let Some(tag) = tag_result {
         Ok(tag)
@@ -192,7 +197,7 @@ pub fn count(conn: &Connection) -> Result<i64> {
     conn.query_row("SELECT COUNT(*) FROM tag", (), |row| row.get::<_, i64>(0))
 }
 
-pub fn delete(conn: &mut Connection, name: &str) -> Result<()> {
+pub fn delete(conn: &Connection, name: &str) -> Result<()> {
     let tag = find_by_name(conn, name)?;
     match tag {
         Some(tag) => {
@@ -200,24 +205,20 @@ pub fn delete(conn: &mut Connection, name: &str) -> Result<()> {
             let games = crate::game::find_with_tag(conn, name)?;
             println!("{} games", games.len());
 
-            let tx = conn.transaction()?;
-
             // Remove tag from games
             for game in games {
                 let new_tags = game.detailed_tags.unwrap().iter().filter(|t| t.name != name).map(|t| t.name.clone()).collect::<Vec<String>>();
-                tx.execute("UPDATE game SET tagsStr = ? WHERE id = ?", params![new_tags.join("; "), game.id])?;
+                conn.execute("UPDATE game SET tagsStr = ? WHERE id = ?", params![new_tags.join("; "), game.id])?;
             }
 
             let mut stmt = "DELETE FROM game_tags_tag WHERE tagId = ?";
-            tx.execute(stmt, params![tag.id])?;
+            conn.execute(stmt, params![tag.id])?;
 
             stmt = "DELETE FROM tag_alias WHERE tagId = ?";
-            tx.execute(stmt, params![tag.id])?;
+            conn.execute(stmt, params![tag.id])?;
 
             stmt = "DELETE FROM tag WHERE id = ?";
-            tx.execute(stmt, params![tag.id])?;
-
-            tx.commit()?;
+            conn.execute(stmt, params![tag.id])?;
 
             Ok(())
         },
@@ -225,7 +226,7 @@ pub fn delete(conn: &mut Connection, name: &str) -> Result<()> {
     }
 }
 
-pub fn merge_tag(conn: &mut Connection, name: &str, merged_into: &str) -> Result<Tag> {
+pub fn merge_tag(conn: &Connection, name: &str, merged_into: &str) -> Result<Tag> {
     let old_tag = match find_by_name(conn, name)? {
         Some(tag) => tag,
         None => return Err(rusqlite::Error::QueryReturnedNoRows)
@@ -235,29 +236,27 @@ pub fn merge_tag(conn: &mut Connection, name: &str, merged_into: &str) -> Result
         None => return Err(rusqlite::Error::QueryReturnedNoRows)
     };
 
-    let tx = conn.transaction()?;
-
     // Remove future duplicate relations, add relations for all games with the old tag
     let mut stmt = "DELETE FROM game_tags_tag
     WHERE gameId IN (
         SELECT gameId FROM game_tags_tag WHERE tagId = ?
     )
     AND tagId = ?";
-    tx.execute(stmt, params![old_tag.id, merged_tag.id])?;
+    conn.execute(stmt, params![old_tag.id, merged_tag.id])?;
 
     stmt = "UPDATE game_tags_tag SET tagId = ? WHERE tagId = ?";
-    tx.execute(stmt, params![merged_tag.id, old_tag.id])?;
+    conn.execute(stmt, params![merged_tag.id, old_tag.id])?;
 
     // Remove old tag table entries
     stmt = "DELETE FROM tag WHERE id = ?";
-    tx.execute(stmt, params![old_tag.id])?;
+    conn.execute(stmt, params![old_tag.id])?;
     stmt = "DELETE FROM tag_alias WHERE tagId = ?";
-    tx.execute(stmt, params![old_tag.id])?;
+    conn.execute(stmt, params![old_tag.id])?;
 
     // Add aliases to new tag
     for alias in old_tag.aliases {
         stmt = "INSERT INTO tag_alias (tagId, name) VALUES (?, ?)";
-        tx.execute(stmt, params![merged_tag.id, alias])?;
+        conn.execute(stmt, params![merged_tag.id, alias])?;
     }
 
     // Update game tagsStr
@@ -271,9 +270,7 @@ pub fn merge_tag(conn: &mut Connection, name: &str, merged_into: &str) -> Result
         WHERE t.gameId = game.id
       )
     )";
-    tx.execute(stmt, ())?;
-
-    tx.commit()?;
+    conn.execute(stmt, ())?;
 
     match find_by_name(conn, merged_into)? {
         Some(tag) => Ok(tag),
@@ -281,7 +278,7 @@ pub fn merge_tag(conn: &mut Connection, name: &str, merged_into: &str) -> Result
     }
 }
 
-pub fn save(conn: &mut Connection, partial: &PartialTag) -> Result<Tag> {
+pub fn save(conn: &Connection, partial: &PartialTag) -> Result<Tag> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
@@ -307,40 +304,77 @@ pub fn save(conn: &mut Connection, partial: &PartialTag) -> Result<Tag> {
         }
     }
 
-    let tx = conn.transaction()?;
-
-
     // Apply flat edits
     match tag.category {
         Some(category) => {
             let stmt = "UPDATE tag SET description = ?, dateModified = ? category = (SELECT id FROM tag_category WHERE name = ?) WHERE id = ?";
-            tx.execute(stmt, params![tag.description, tag.date_modified, category, tag.id])?;
+            conn.execute(stmt, params![tag.description, tag.date_modified, category, tag.id])?;
         }
         None => {
             let stmt = "UPDATE tag SET description = ?, dateModified = ? WHERE id = ?";
-            tx.execute(stmt, params![tag.description, tag.date_modified, tag.id])?;
+            conn.execute(stmt, params![tag.description, tag.date_modified, tag.id])?;
         }
     }
 
     // Remove old aliases
     let mut stmt = "DELETE FROM tag_alias WHERE tagId = ? AND name NOT IN rarray(?)";
     let alias_rc = Rc::new(tag.aliases.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
-    tx.execute(stmt, params![tag.id, alias_rc])?;
+    conn.execute(stmt, params![tag.id, alias_rc])?;
 
     // Add new aliases
     for alias in new_tag_aliases {
         stmt = "INSERT INTO tag_alias (name, tagId) VALUES (?, ?)";
-        tx.execute(stmt, params![alias, tag.id])?;
+        conn.execute(stmt, params![alias, tag.id])?;
     }
 
     // Update primary alias id
     stmt = "UPDATE tag SET primaryAliasId = (SELECT id FROM tag_alias WHERE name = ?) WHERE id = ?";
-    tx.execute(stmt, params![tag.name, tag.id])?;
-
-    tx.commit()?;
+    conn.execute(stmt, params![tag.name, tag.id])?;
 
     match find_by_id(&conn, tag.id)? {
         Some(t) => Ok(t),
         None => return Err(rusqlite::Error::QueryReturnedNoRows)
     }
+}
+
+pub fn search_tag_suggestions(conn: &Connection, table: &str, partial: &str) -> Result<Vec<TagSuggestion>> {
+    let mut suggestions = vec![];
+
+    let query = format!("SELECT sugg.tagId, sugg.matched_alias, count(game_tag.gameId) as gameCount, sugg.primary_alias FROM (
+        SELECT 
+			ta1.{}Id as tagId,
+			ta1.name AS matched_alias,
+			ta2.name AS primary_alias
+		FROM 
+			{}_alias ta1
+		JOIN 
+			tag t ON ta1.{}Id = t.id
+		JOIN 
+	        {}_alias ta2 ON t.primaryAliasId = ta2.id
+		WHERE 
+			ta1.name LIKE ?
+    ) sugg
+    LEFT JOIN game_{}s_{} game_tag ON game_tag.{}Id = sugg.tagId
+    GROUP BY sugg.matched_alias
+    ORDER BY COUNT(game_tag.gameId) DESC, sugg.matched_alias ASC", table, table, table, table, table, table, table);
+
+    println!("{}", query);
+
+    let mut stmt = conn.prepare(&query)?;
+    let mut likeable = String::from(partial);
+    likeable.push_str("%");
+    let results = stmt.query_map(params![&likeable], |row| {
+        Ok(TagSuggestion {
+            id: row.get(0)?,
+            matched_from: row.get(1)?,
+            games_count: row.get(2)?,
+            name: row.get(3)?,
+        })
+    })?;
+
+    for sugg in results {
+        suggestions.push(sugg?);
+    }
+
+    Ok(suggestions)
 }

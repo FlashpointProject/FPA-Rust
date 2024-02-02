@@ -308,7 +308,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
     }
 }
 
-pub fn create(conn: &mut Connection, partial: &PartialGame) -> Result<Game> {
+pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     let mut game: Game = partial.into();
 
     let mut detailed_tags = vec![];
@@ -331,9 +331,7 @@ pub fn create(conn: &mut Connection, partial: &PartialGame) -> Result<Game> {
         detailed_platforms.push(detailed_platform.id);
     }
 
-    let tx = conn.transaction()?;
-
-    tx.execute(
+    conn.execute(
         "INSERT INTO game (id, library, title, alternateTitles, series, developer, publisher, \
          platformName, platformsStr, dateAdded, dateModified, broken, extreme, playMode, status, \
          notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
@@ -376,20 +374,17 @@ pub fn create(conn: &mut Connection, partial: &PartialGame) -> Result<Game> {
     )?;
 
     for tag in detailed_tags {
-        tx.execute("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)", params![game.id, tag])?;
+        conn.execute("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)", params![game.id, tag])?;
     }
 
     for platform in detailed_platforms {
-        tx.execute("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)", params![game.id, platform])?;
+        conn.execute("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)", params![game.id, platform])?;
     }
-
-
-    tx.commit()?;
 
     Ok(game)
 }
 
-pub fn save(conn: &mut Connection, game: &PartialGame) -> Result<Game> {
+pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
@@ -493,22 +488,18 @@ pub fn save(conn: &mut Connection, game: &PartialGame) -> Result<Game> {
     }
 }
 
-pub fn delete(conn: &mut Connection, id: &str) -> Result<()> {
-    let tx = conn.transaction()?;
-    
+pub fn delete(conn: &Connection, id: &str) -> Result<()> {    
     let mut stmt = "DELETE FROM game WHERE id = ?";
-    tx.execute(stmt, params![id])?;
+    conn.execute(stmt, params![id])?;
 
     stmt = "DELETE FROM additional_app WHERE parentGameId = ?";
-    tx.execute(stmt, params![id])?;
+    conn.execute(stmt, params![id])?;
 
     stmt = "DELETE FROM game_tags_tag WHERE gameId = ?";
-    tx.execute(stmt, params![id])?;
+    conn.execute(stmt, params![id])?;
 
     stmt = "DELETE FROM game_platforms_platform WHERE gameId = ?";
-    tx.execute(stmt, params![id])?;
-
-    tx.commit()?;
+    conn.execute(stmt, params![id])?;
 
     Ok(())
 }
@@ -790,7 +781,7 @@ pub fn find_add_app_by_id(conn: &Connection, id: &str) -> Result<Option<Addition
     }).optional()
 }
 
-pub fn add_playtime(conn: &mut Connection, game_id: &str, seconds: i64) -> Result<()> {
+pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()> {
     let mut game = match find(conn, game_id)? {
         Some(g) => g,
         None => return Err(rusqlite::Error::QueryReturnedNoRows)

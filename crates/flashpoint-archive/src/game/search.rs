@@ -371,11 +371,13 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
 
     // Update tag filter indexing
     if let Some(tags) = &search.with_tag_filter {
-        let mut filtered_search = GameSearch::default();
-        filtered_search.limit = 999999999;
-        filtered_search.filter.exact_blacklist.tags = Some(tags.to_vec());
-        filtered_search.filter.match_any = true;
-        new_tag_filter_index(conn, &mut filtered_search)?;
+        if tags.len() > 0 {
+            let mut filtered_search = GameSearch::default();
+            filtered_search.limit = 999999999;
+            filtered_search.filter.exact_blacklist.tags = Some(tags.to_vec());
+            filtered_search.filter.match_any = true;
+            new_tag_filter_index(conn, &mut filtered_search)?;
+        }
     }
 
     let order_column = match search.order.column {
@@ -946,7 +948,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             }
         }
 
-        if token.ends_with('"') {
+        if token.ends_with('"') && capturing_quotes {
             // Closing quote
             capturing_quotes = false;
             // Remove quote at end of working value, if doesn't exist then it's a broken quoted value
