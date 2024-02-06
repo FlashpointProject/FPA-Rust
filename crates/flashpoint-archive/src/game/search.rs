@@ -7,7 +7,7 @@ use crate::{debug_println, game::get_game_add_apps};
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
 
 #[derive(Debug, Clone)]
-enum StringOrVec {
+pub enum StringOrVec {
     Single(String),
     Multiple(Vec<String>),
 }
@@ -101,6 +101,7 @@ pub struct GameFilter {
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct FieldFilter {
+    pub id: Option<Vec<String>>,
     pub generic: Option<Vec<String>>,
     pub library: Option<Vec<String>>,
     pub title: Option<Vec<String>>,
@@ -112,7 +113,7 @@ pub struct FieldFilter {
 }
 
 #[derive(Debug, Clone)]
-struct ForcedGameFIlter {
+struct ForcedGameFilter {
     pub whitelist: ForcedFieldFilter,
     pub blacklist: ForcedFieldFilter,
     pub exact_whitelist: ForcedFieldFilter,
@@ -121,6 +122,7 @@ struct ForcedGameFIlter {
 
 #[derive(Debug, Clone)]
 struct ForcedFieldFilter {
+    pub id: Vec<String>,
     pub generic: Vec<String>,
     pub library: Vec<String>,
     pub title: Vec<String>,
@@ -183,6 +185,7 @@ impl Default for GameSearchRelations {
 impl Default for FieldFilter {
     fn default() -> Self {
         FieldFilter {
+            id: None,
             generic: None,
             library: None,
             title: None,
@@ -195,9 +198,9 @@ impl Default for FieldFilter {
     }
 }
 
-impl Default for ForcedGameFIlter {
+impl Default for ForcedGameFilter {
     fn default() -> Self {
-        ForcedGameFIlter {
+        ForcedGameFilter {
             whitelist: ForcedFieldFilter::default(),
             blacklist: ForcedFieldFilter::default(),
             exact_whitelist: ForcedFieldFilter::default(),
@@ -209,6 +212,7 @@ impl Default for ForcedGameFIlter {
 impl Default for ForcedFieldFilter {
     fn default() -> Self {
         ForcedFieldFilter {
+            id: vec![],
             generic: vec![],
             library: vec![],
             title: vec![],
@@ -221,12 +225,15 @@ impl Default for ForcedFieldFilter {
     }
 }
 
-impl From<&ForcedGameFIlter> for GameFilter {
-    fn from(value: &ForcedGameFIlter) -> Self {
+impl From<&ForcedGameFilter> for GameFilter {
+    fn from(value: &ForcedGameFilter) -> Self {
         let mut search = GameFilter::default();
 
         // Whitelist
 
+        if value.whitelist.id.len() > 0 {
+            search.whitelist.id = Some(value.whitelist.id.clone());
+        }
         if value.whitelist.generic.len() > 0 {
             search.whitelist.generic = Some(value.whitelist.generic.clone());
         }
@@ -251,6 +258,9 @@ impl From<&ForcedGameFIlter> for GameFilter {
 
         // Blacklist
 
+        if value.blacklist.id.len() > 0 {
+            search.blacklist.id = Some(value.blacklist.id.clone());
+        }
         if value.blacklist.generic.len() > 0 {
             search.blacklist.generic = Some(value.blacklist.generic.clone());
         }
@@ -275,6 +285,9 @@ impl From<&ForcedGameFIlter> for GameFilter {
 
         // Exact whitelist
 
+        if value.exact_whitelist.id.len() > 0 {
+            search.exact_whitelist.id = Some(value.exact_whitelist.id.clone());
+        }
         if value.exact_whitelist.generic.len() > 0 {
             search.exact_whitelist.generic = Some(value.exact_whitelist.generic.clone());
         }
@@ -299,7 +312,9 @@ impl From<&ForcedGameFIlter> for GameFilter {
 
         // Exact blacklist
 
-
+        if value.exact_blacklist.id.len() > 0 {
+            search.exact_blacklist.id = Some(value.exact_blacklist.id.clone());
+        }
         if value.exact_blacklist.generic.len() > 0 {
             search.exact_blacklist.generic = Some(value.exact_blacklist.generic.clone());
         }
@@ -643,21 +658,25 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
     };
 
     // exact whitelist
+    exact_whitelist_clause!(add_clause, "id", &filter.exact_whitelist.id);
     exact_whitelist_clause!(add_clause, "library", &filter.exact_whitelist.library);
     exact_whitelist_clause!(add_clause, "developer", &filter.exact_whitelist.developer);
     exact_whitelist_clause!(add_clause, "publisher", &filter.exact_whitelist.publisher);
 
     // exact blacklist
+    exact_blacklist_clause!(add_clause, "id", &filter.exact_blacklist.id);
     exact_blacklist_clause!(add_clause, "library", &filter.exact_blacklist.library);
     exact_blacklist_clause!(add_clause, "developer", &filter.exact_blacklist.developer);
     exact_blacklist_clause!(add_clause, "publisher", &filter.exact_blacklist.publisher);
 
     // whitelist
+    whitelist_clause!(add_clause, "id", &filter.whitelist.id);
     whitelist_clause!(add_clause, "library", &filter.whitelist.library);
     whitelist_clause!(add_clause, "developer", &filter.whitelist.developer);
     whitelist_clause!(add_clause, "publisher", &filter.whitelist.publisher);
 
     // blacklist
+    blacklist_clause!(add_clause, "id", &filter.blacklist.id);
     blacklist_clause!(add_clause, "library", &filter.blacklist.library);
     blacklist_clause!(add_clause, "developer", &filter.blacklist.developer);
     blacklist_clause!(add_clause, "publisher", &filter.blacklist.publisher);
@@ -869,7 +888,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
 
 pub fn parse_user_input(input: &str) -> GameSearch {
     let mut search = GameSearch::default();
-    let mut filter = ForcedGameFIlter::default();
+    let mut filter = ForcedGameFilter::default();
 
     let mut capturing_quotes = false;
     let mut working_key = String::new();
@@ -1005,6 +1024,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
 
             // Has a complete value, add to filter
             match working_key.as_str() {
+                "id" => list.id.push(value),
                 "library" => list.library.push(value),
                 "title" => list.title.push(value),
                 "developer" => list.developer.push(value),

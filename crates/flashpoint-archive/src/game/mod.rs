@@ -1,17 +1,18 @@
-use chrono::{NaiveDateTime, Utc};
+use chrono::Utc;
 use rusqlite::{
     params,
     types::{FromSql, FromSqlError, ValueRef, Value},
     Connection, OptionalExtension, Result,
 };
 use uuid::Uuid;
-use std::{ops::{Deref, DerefMut}, vec::Vec, rc::Rc};
+use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
 
-use crate::{tag::{Tag, self}, platform, game_data::{GameData, PartialGameData}};
+use crate::{tag::{Tag, self}, platform::{self, PlatformAppPath}, game_data::{GameData, PartialGameData}};
 
 use self::search::{GameSearch, GameSearchRelations};
 
 pub mod search;
+pub mod update;
 
 #[cfg(feature = "napi")]
 use napi::bindgen_prelude::{ToNapiValue, FromNapiValue};
@@ -36,6 +37,13 @@ impl DerefMut for TagVec {
 impl Default for TagVec {
     fn default() -> Self {
         TagVec (vec![])
+    }
+}
+
+impl Display for TagVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.join("; ").as_str())?;
+        Ok(())
     }
 }
 
@@ -178,8 +186,8 @@ pub struct Game {
     pub publisher: String,
     pub primary_platform: String,
     pub platforms: TagVec,
-    pub date_added: NaiveDateTime,
-    pub date_modified: NaiveDateTime,
+    pub date_added: String,
+    pub date_modified: String,
     pub detailed_platforms: Option<Vec<Tag>>,
     pub legacy_broken: bool,
     pub legacy_extreme: bool,
@@ -197,7 +205,7 @@ pub struct Game {
     pub language: String,
     pub active_data_id: Option<i64>,
     pub active_data_on_disk: bool,
-    pub last_played: Option<NaiveDateTime>,
+    pub last_played: Option<String>,
     pub playtime: i64,
     pub play_counter: i64,
     pub active_game_config_id: Option<i64>,
@@ -219,8 +227,8 @@ pub struct PartialGame {
     pub publisher: Option<String>,
     pub primary_platform: Option<String>,
     pub platforms: Option<TagVec>,
-    pub date_added: Option<NaiveDateTime>,
-    pub date_modified: Option<NaiveDateTime>,
+    pub date_added: Option<String>,
+    pub date_modified: Option<String>,
     pub legacy_broken: Option<bool>,
     pub legacy_extreme: Option<bool>,
     pub play_mode: Option<String>,
@@ -236,7 +244,7 @@ pub struct PartialGame {
     pub language: Option<String>,
     pub active_data_id: Option<i64>,
     pub active_data_on_disk: Option<bool>,
-    pub last_played: Option<NaiveDateTime>,
+    pub last_played: Option<String>,
     pub playtime: Option<i64>,
     pub active_game_config_id: Option<i64>,
     pub active_game_config_owner: Option<String>,
@@ -326,7 +334,7 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     }
 
     for name in platforms_copy {
-        let detailed_platform = platform::find_or_create(conn, &name)?;
+        let detailed_platform = platform::find_or_create(conn, &name, None)?;
         game.platforms.push(detailed_platform.name);
         detailed_platforms.push(detailed_platform.id);
     }
@@ -407,7 +415,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
         }
 
         for name in platforms_copy {
-            let detailed_platform = platform::find_or_create(conn, &name)?;
+            let detailed_platform = platform::find_or_create(conn, &name, None)?;
             detailed_platforms_copy.push(detailed_platform.clone());
             existing_game.platforms.push(detailed_platform.name);
         }
@@ -764,6 +772,97 @@ pub fn find_libraries(conn: &Connection) -> Result<Vec<String>> {
     Ok(libraries)
 }
 
+pub fn find_statuses(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT status FROM game")?;
+    let status_iter = stmt.query_map((), |row| {
+        let value: String = row.get(0)?;
+        Ok(value)
+    })?;
+
+    let mut statuses = HashSet::new();
+
+    for status in status_iter {
+        if let Ok(status) = status {
+
+            status.split(';').for_each(|v| { statuses.insert(v.trim().to_string()); });
+        }
+    }
+
+    Ok(statuses.into_iter().collect())
+}
+
+pub fn find_play_modes(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT playMode FROM game")?;
+    let play_modes_iter = stmt.query_map((), |row| {
+        let value: String = row.get(0)?;
+        Ok(value)
+    })?;
+
+    let mut play_modes = HashSet::new();
+
+    for play_mode in play_modes_iter {
+        if let Ok(play_mode) = play_mode {
+
+            play_mode.split(';').for_each(|v| { play_modes.insert(v.trim().to_string()); });
+        }
+    }
+
+    Ok(play_modes.into_iter().collect())
+}
+
+pub fn find_application_paths(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("
+    SELECT COUNT(*) as games_count, applicationPath FROM (
+        SELECT applicationPath FROM game WHERE applicationPath != ''
+        UNION ALL
+        SELECT applicationPath FROM game_data WHERE applicationPath != ''
+    ) GROUP BY applicationPath ORDER BY games_count DESC")?;
+    let ap_iter = stmt.query_map((), |row| row.get(1))?;
+
+    let mut app_paths = vec![];
+
+    for app_path in ap_iter {
+        app_paths.push(app_path?);
+    }
+
+    Ok(app_paths)
+}
+
+pub fn find_platform_app_paths(conn: &Connection) -> Result<HashMap<String, Vec<PlatformAppPath>>> {
+    let mut suggestions = HashMap::new();
+    let platforms = platform::find(conn)?;
+
+    for platform in platforms {
+        let mut stmt = conn.prepare("
+        SELECT COUNT(*) as games_count, applicationPath FROM (
+            SELECT applicationPath FROM game WHERE applicationPath != '' AND game.id IN (
+                SELECT gameId FROM game_platforms_platform WHERE platformId = ?
+            )
+            UNION ALL
+            SELECT applicationPath FROM game_data WHERE applicationPath != '' AND game_data.gameId IN (
+                SELECT gameId FROM game_platforms_platform WHERE platformId = ?
+            )
+        ) GROUP BY applicationPath ORDER BY games_count DESC")?;
+
+        let results = stmt.query_map(params![platform.id, platform.id], |row| {
+            Ok(PlatformAppPath {
+                app_path: row.get(1)?,
+                count: row.get(0)?,
+            })
+        })?;
+
+        let mut platform_list = vec![];
+
+        for app_path in results {
+            platform_list.push(app_path?);
+        }
+
+        suggestions.insert(platform.name, platform_list);
+    }
+
+    Ok(suggestions)
+}
+
 pub fn find_add_app_by_id(conn: &Connection, id: &str) -> Result<Option<AdditionalApp>> {
     let mut stmt = conn.prepare("SELECT name, applicationPath, launchCommand, autoRunBefore,
         waitForExit, parentGameId FROM additional_app WHERE id = ?")?;
@@ -789,7 +888,7 @@ pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()
 
     game.play_counter += 1;
     game.playtime += seconds;
-    game.last_played = Some(Utc::now().naive_utc());
+    game.last_played = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
 
     save(conn, &(game.into()))?;
     Ok(())
@@ -852,8 +951,8 @@ impl Default for Game {
             publisher: String::default(),
             primary_platform: String::default(),
             platforms: TagVec::default(),
-            date_added: Utc::now().naive_utc(),
-            date_modified: Utc::now().naive_utc(),
+            date_added: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            date_modified: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             detailed_platforms: None,
             legacy_broken: false,
             legacy_extreme: false,
@@ -922,11 +1021,11 @@ impl Game {
             self.primary_platform = platform;
         }
     
-        if let Some(date_added) = source.date_added {
+        if let Some(date_added) = source.date_added.clone() {
             self.date_added = date_added;
         }
     
-        if let Some(date_modified) = source.date_modified {
+        if let Some(date_modified) = source.date_modified.clone() {
             self.date_modified = date_modified;
         }
     
@@ -990,7 +1089,7 @@ impl Game {
             self.active_data_on_disk = active_data_on_disk;
         }
     
-        if let Some(last_played) = source.last_played {
+        if let Some(last_played) = source.last_played.clone() {
             self.last_played = Some(last_played);
         }
     
@@ -1075,7 +1174,7 @@ impl GameData {
             self.title = title;
         }
 
-        if let Some(data_added) = value.date_added {
+        if let Some(data_added) = value.date_added.clone() {
             self.date_added = data_added;
         }
 
@@ -1120,7 +1219,7 @@ impl Default for GameData {
             id: -1,
             game_id: "".to_owned(),
             title: "".to_owned(),
-            date_added: Utc::now().naive_utc(),
+            date_added: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             sha256: "".to_owned(),
             crc32: 0,
             size: 0,

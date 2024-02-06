@@ -1,9 +1,8 @@
 use std::rc::Rc;
 
-use chrono::NaiveDateTime;
 use rusqlite::{Connection, Result, params, OptionalExtension, types::Value};
 
-use crate::tag_category;
+use crate::{game::search::StringOrVec, tag_category};
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
@@ -11,7 +10,7 @@ pub struct Tag {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub date_modified: NaiveDateTime,
+    pub date_modified: String,
     pub aliases: Vec<String>,
     pub category: Option<String>,
 }
@@ -22,7 +21,7 @@ pub struct PartialTag {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
-    pub date_modified: Option<NaiveDateTime>,
+    pub date_modified: Option<String>,
     pub aliases: Option<Vec<String>>,
     pub category: Option<String>,
 }
@@ -36,8 +35,15 @@ pub struct TagSuggestion {
     pub games_count: i64
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct LooseTagAlias {
+    pub id: i64,
+    pub value: String,
+}
+
 impl Tag {
-    fn apply_partial(&mut self, partial: &PartialTag) {
+    pub fn apply_partial(&mut self, partial: &PartialTag) {
         self.name = partial.name.clone();
 
         if let Some(aliases) = partial.aliases.clone() {
@@ -51,7 +57,7 @@ impl Tag {
             self.description = description;
         }
 
-        if let Some(date_modified) = partial.date_modified {
+        if let Some(date_modified) = partial.date_modified.clone() {
             self.date_modified = date_modified;
         }
 
@@ -61,11 +67,38 @@ impl Tag {
     }
 }
 
+impl Default for PartialTag {
+    fn default() -> Self {
+        return PartialTag {
+            id: -1,
+            name: String::new(),
+            description: None,
+            date_modified: None,
+            aliases: None,
+            category: None
+        };
+    }
+}
+
+impl From<Tag> for PartialTag {
+    fn from(value: Tag) -> Self {
+        let mut partial = PartialTag::default();
+        partial.id = value.id;
+        partial.name = value.name;
+        partial.description = Some(value.description);
+        partial.date_modified = Some(value.date_modified);
+        partial.aliases = Some(value.aliases);
+        partial.category = value.category;
+        partial
+    }
+}
+
 pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
     let mut stmt = conn.prepare(
-        "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag_alias ta
-        INNER JOIN tag t ON t.id = ta.tagId
-        INNER JOIN tag_category tc ON t.categoryId = tc.id")?;
+        "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag t
+        INNER JOIN tag_alias ta ON ta.id = t.primaryAliasId
+        INNER JOIN tag_category tc ON t.categoryId = tc.id
+        ORDER BY tc.name, ta.name")?;
 
     let tag_iter = stmt.query_map((), |row| {
         Ok(Tag {
@@ -95,7 +128,7 @@ pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
     Ok(tags)
 }
 
-pub fn create(conn: &Connection, name: &str, category: Option<String>) -> Result<Tag> {
+pub fn create(conn: &Connection, name: &str, category: Option<String>, id: Option<i64>) -> Result<Tag> {
     // Create the alias
     let mut stmt = "INSERT INTO tag_alias (name, tagId) VALUES(?, ?) RETURNING id";
     let category = tag_category::find_or_create(conn, category.unwrap_or_else(|| "default".to_owned()).as_str(), None)?;
@@ -103,12 +136,26 @@ pub fn create(conn: &Connection, name: &str, category: Option<String>) -> Result
     // Create a new tag
     let alias_id: i64 = conn.query_row(stmt, params![name, -1], |row| row.get(0))?;
 
-    stmt = "INSERT INTO tag (primaryAliasId, description, categoryId) VALUES (?, ?, ?) RETURNING id";
-    let tag_id: i64 = conn.query_row(stmt, params![alias_id, "", category.id], |row| row.get(0))?;
+    match id {
+        Some(id) => {
+            stmt = "INSERT INTO tag (id, primaryAliasId, description, categoryId) VALUES (?, ?, ?, ?)";
+            conn.execute(stmt, params![id, alias_id, "", category.id])?;
+            
+            // Update tag alias with the new tag id
+            stmt = "UPDATE tag_alias SET tagId = ? WHERE id = ?";
+            conn.execute(stmt, params![id, alias_id])?;
+        },
+        None => {
+            stmt = "INSERT INTO tag (primaryAliasId, description, categoryId) VALUES (?, ?, ?) RETURNING id";
+            let tag_id: i64 = conn.query_row(stmt, params![alias_id, "", category.id], |row| row.get(0))?;
+        
+            // Update tag alias with the new tag id
+            stmt = "UPDATE tag_alias SET tagId = ? WHERE id = ?";
+            conn.execute(stmt, params![tag_id, alias_id])?;
+        }
+    }
 
-    // Update tag alias with the new tag id
-    stmt = "UPDATE tag_alias SET tagId = ? WHERE id = ?";
-    conn.execute(stmt, params![tag_id, alias_id])?;
+
 
     let new_tag_result = find_by_name(conn, name)?;
     if let Some(tag) = new_tag_result {
@@ -123,7 +170,7 @@ pub fn find_or_create(conn: &Connection, name: &str) -> Result<Tag> {
     if let Some(tag) = tag_result {
         Ok(tag)
     } else {
-        create(conn, name, None)
+        create(conn, name, None, None)
     }
 }
 
@@ -201,29 +248,58 @@ pub fn delete(conn: &Connection, name: &str) -> Result<()> {
     let tag = find_by_name(conn, name)?;
     match tag {
         Some(tag) => {
-            println!("Found tag");
-            let games = crate::game::find_with_tag(conn, name)?;
-            println!("{} games", games.len());
-
-            // Remove tag from games
-            for game in games {
-                let new_tags = game.detailed_tags.unwrap().iter().filter(|t| t.name != name).map(|t| t.name.clone()).collect::<Vec<String>>();
-                conn.execute("UPDATE game SET tagsStr = ? WHERE id = ?", params![new_tags.join("; "), game.id])?;
-            }
-
-            let mut stmt = "DELETE FROM game_tags_tag WHERE tagId = ?";
-            conn.execute(stmt, params![tag.id])?;
-
-            stmt = "DELETE FROM tag_alias WHERE tagId = ?";
+            let mut stmt = "DELETE FROM tag_alias WHERE tagId = ?";
             conn.execute(stmt, params![tag.id])?;
 
             stmt = "DELETE FROM tag WHERE id = ?";
+            conn.execute(stmt, params![tag.id])?;
+
+            // Update game tagsStr
+            stmt = "UPDATE game
+            SET tagsStr = (
+                SELECT IFNULL(string_agg(ta.name, '; '), '')
+                FROM game_tags_tag gtt
+                JOIN tag t ON gtt.tagId = t.id
+                JOIN tag_alias ta ON t.primaryAliasId = ta.id
+                WHERE gtt.gameId = game.id
+            ) WHERE game.id IN (
+                SELECT gameId FROM game_tags_tag WHERE tagId = ?   
+            )";
+            conn.execute(stmt, params![tag.id])?;
+
+            stmt = "DELETE FROM game_tags_tag WHERE tagId = ?";
             conn.execute(stmt, params![tag.id])?;
 
             Ok(())
         },
         None => Err(rusqlite::Error::QueryReturnedNoRows),
     }
+}
+
+pub fn delete_by_id(conn: &Connection, id: i64) -> Result<()> {
+    let mut stmt = "DELETE FROM tag_alias WHERE tagId = ?";
+    conn.execute(stmt, params![id])?;
+
+    stmt = "DELETE FROM tag WHERE id = ?";
+    conn.execute(stmt, params![id])?;
+
+    // Update game tagsStr
+    stmt = "UPDATE game
+    SET tagsStr = (
+        SELECT IFNULL(string_agg(ta.name, '; '), '')
+        FROM game_tags_tag gtt
+        JOIN tag t ON gtt.tagId = t.id
+        JOIN tag_alias ta ON t.primaryAliasId = ta.id
+        WHERE gtt.gameId = game.id
+    ) WHERE game.id IN (
+        SELECT gameId FROM game_tags_tag WHERE tagId = ?   
+    )";
+    conn.execute(stmt, params![id])?;
+
+    stmt = "DELETE FROM game_tags_tag WHERE tagId = ?";
+    conn.execute(stmt, params![id])?;
+
+    Ok(())
 }
 
 pub fn merge_tag(conn: &Connection, name: &str, merged_into: &str) -> Result<Tag> {
@@ -278,36 +354,34 @@ pub fn merge_tag(conn: &Connection, name: &str, merged_into: &str) -> Result<Tag
     }
 }
 
-pub fn save(conn: &Connection, partial: &PartialTag) -> Result<Tag> {
+pub fn unsafe_save(conn: &Connection, tag: &Tag) -> Result<()> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
-    let mut tag = match find_by_id(conn, partial.id)? {
-        Some(t) => t,
-        None => return Err(rusqlite::Error::QueryReturnedNoRows)
-    };
-
     let mut new_tag_aliases = vec![];
 
-    tag.apply_partial(partial);
+    // Check for collisions before updating
+    let mut stmt = conn.prepare("SELECT tagId FROM tag_alias WHERE name = ?")?;
 
     // Check for collisions before updating
     for alias in tag.aliases.clone() {
-        match find_by_name(conn, &alias)? {
-            Some(existing_link) => {
-                if existing_link.id != tag.id {
-                    // Clash of alias, can't move until deassigned from other tag
+        let existing_tag_id = stmt.query_row(params![alias], |row| row.get::<_, i64>(0)).optional()?;
+        match existing_tag_id {
+            Some(id) => {
+                if id != tag.id {
                     return Err(rusqlite::Error::QueryReturnedNoRows) // TODO: Make this a proper error
                 }
             },
-            None => new_tag_aliases.push(alias),
+            None => {
+                new_tag_aliases.push(alias);
+            }
         }
     }
 
     // Apply flat edits
-    match tag.category {
+    match &tag.category {
         Some(category) => {
-            let stmt = "UPDATE tag SET description = ?, dateModified = ? category = (SELECT id FROM tag_category WHERE name = ?) WHERE id = ?";
+            let stmt = "UPDATE tag SET description = ?, dateModified = ?, categoryId = (SELECT id FROM tag_category WHERE name = ?) WHERE id = ?";
             conn.execute(stmt, params![tag.description, tag.date_modified, category, tag.id])?;
         }
         None => {
@@ -331,6 +405,79 @@ pub fn save(conn: &Connection, partial: &PartialTag) -> Result<Tag> {
     stmt = "UPDATE tag SET primaryAliasId = (SELECT id FROM tag_alias WHERE name = ?) WHERE id = ?";
     conn.execute(stmt, params![tag.name, tag.id])?;
 
+    Ok(())
+}
+
+pub fn save(conn: &Connection, partial: &PartialTag) -> Result<Tag> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+
+    let mut tag = match find_by_id(conn, partial.id)? {
+        Some(t) => t,
+        None => return Err(rusqlite::Error::QueryReturnedNoRows)
+    };
+
+    let mut new_tag_aliases = vec![];
+
+    tag.apply_partial(partial);
+
+    let mut stmt = conn.prepare("SELECT tagId FROM tag_alias WHERE name = ?")?;
+
+    // Check for collisions before updating
+    for alias in tag.aliases.clone() {
+        let existing_tag_id = stmt.query_row(params![alias], |row| row.get::<_, i64>(0)).optional()?;
+        match existing_tag_id {
+            Some(id) => {
+                if id != tag.id {
+                    return Err(rusqlite::Error::QueryReturnedNoRows) // TODO: Make this a proper error
+                }
+            },
+            None => {
+                new_tag_aliases.push(alias);
+            }
+        }
+    }
+
+    // Apply flat edits
+    match tag.category {
+        Some(category) => {
+            let stmt = "UPDATE tag SET description = ?, dateModified = ?, categoryId = (SELECT id FROM tag_category WHERE name = ?) WHERE id = ?";
+            conn.execute(stmt, params![tag.description, tag.date_modified, category, tag.id])?;
+        }
+        None => {
+            let stmt = "UPDATE tag SET description = ?, dateModified = ? WHERE id = ?";
+            conn.execute(stmt, params![tag.description, tag.date_modified, tag.id])?;
+        }
+    }
+
+    // Remove old aliases
+    let mut stmt = "DELETE FROM tag_alias WHERE tagId = ? AND name NOT IN rarray(?)";
+    let alias_rc = Rc::new(tag.aliases.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
+    conn.execute(stmt, params![tag.id, alias_rc])?;
+
+    // Add new aliases
+    for alias in new_tag_aliases {
+        stmt = "INSERT INTO tag_alias (name, tagId) VALUES (?, ?)";
+        conn.execute(stmt, params![alias, tag.id])?;
+    }
+
+    // Update primary alias id
+    stmt = "UPDATE tag SET primaryAliasId = (SELECT id FROM tag_alias WHERE name = ?) WHERE id = ?";
+    conn.execute(stmt, params![tag.name, tag.id])?;
+
+    // Update game tagsStr fields
+    stmt = "UPDATE game
+    SET tagsStr = (
+        SELECT IFNULL(string_agg(ta.name, '; '), '')
+        FROM game_tags_tag gtt
+        JOIN tag t ON gtt.tagId = t.id
+        JOIN tag_alias ta ON t.primaryAliasId = ta.id
+        WHERE gtt.gameId = game.id
+    ) WHERE game.id IN (
+        SELECT gameId FROM game_tags_tag WHERE tagId = ?   
+    )";
+    conn.execute(stmt, params![tag.id])?;
+
     match find_by_id(&conn, tag.id)? {
         Some(t) => Ok(t),
         None => return Err(rusqlite::Error::QueryReturnedNoRows)
@@ -348,7 +495,7 @@ pub fn search_tag_suggestions(conn: &Connection, table: &str, partial: &str) -> 
 		FROM 
 			{}_alias ta1
 		JOIN 
-			tag t ON ta1.{}Id = t.id
+			{} t ON ta1.{}Id = t.id
 		JOIN 
 	        {}_alias ta2 ON t.primaryAliasId = ta2.id
 		WHERE 
@@ -356,7 +503,7 @@ pub fn search_tag_suggestions(conn: &Connection, table: &str, partial: &str) -> 
     ) sugg
     LEFT JOIN game_{}s_{} game_tag ON game_tag.{}Id = sugg.tagId
     GROUP BY sugg.matched_alias
-    ORDER BY COUNT(game_tag.gameId) DESC, sugg.matched_alias ASC", table, table, table, table, table, table, table);
+    ORDER BY COUNT(game_tag.gameId) DESC, sugg.matched_alias ASC", table, table, table, table, table, table, table, table);
 
     println!("{}", query);
 
@@ -377,4 +524,24 @@ pub fn search_tag_suggestions(conn: &Connection, table: &str, partial: &str) -> 
     }
 
     Ok(suggestions)
+}
+
+pub fn unsafe_insert_aliases(conn: &Connection, aliases: Vec<LooseTagAlias>) -> Result<()> {
+    let mut stmt = conn.prepare("INSERT INTO tag_alias (tagId, name) VALUES (?, ?)")?;
+
+    for alias in aliases {
+        stmt.execute(params![alias.id, alias.value])?;
+    }
+
+    Ok(())
+}
+
+pub fn unsafe_delete_aliases(conn: &Connection, aliases: Vec<String>) -> Result<()> {
+    // Allow use of rarray() in SQL queries
+    rusqlite::vtab::array::load_module(conn)?;
+    let aliases = StringOrVec::Multiple(aliases);
+    let mut stmt = conn.prepare("DELETE FROM tag_alias WHERE name IN rarray(?)")?;
+    stmt.execute(params![aliases])?;
+
+    Ok(())
 }

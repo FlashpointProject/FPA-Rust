@@ -1,5 +1,6 @@
 {
     "rust-analyzer.showUnlinkedFileNotification": false,
     "rust-analyzer.linkedProjects": ["bindings/Cargo.toml"],
-    "rust-analyzer.files.excludeDirs": ["bindings/target", "target"]
+    "rust-analyzer.files.excludeDirs": ["bindings/target", "target"],
+    "editor.tabSize": 4
 }

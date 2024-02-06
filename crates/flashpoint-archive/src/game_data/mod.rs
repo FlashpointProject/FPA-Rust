@@ -1,4 +1,3 @@
-use chrono::NaiveDateTime;
 use rusqlite::{Connection, Result, params};
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -7,7 +6,7 @@ pub struct GameData {
     pub id: i64,
     pub game_id: String,
     pub title: String,
-    pub date_added: NaiveDateTime,
+    pub date_added: String,
     pub sha256: String,
     pub crc32: i32,
     pub present_on_disk: bool,
@@ -24,7 +23,7 @@ pub struct PartialGameData {
     pub id: Option<i64>,
     pub game_id: String,
     pub title: Option<String>,
-    pub date_added: Option<NaiveDateTime>,
+    pub date_added: Option<String>,
     pub sha256: Option<String>,
     pub crc32: Option<i32>,
     pub present_on_disk: Option<bool>,

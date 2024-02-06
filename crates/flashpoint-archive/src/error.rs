@@ -14,6 +14,10 @@ pub enum Error {
     SqliteError { source: rusqlite::Error },
     #[snafu(display("Mutex lock failed"))]
     MutexLockFailed,
+    #[snafu(display("Transaction already open"))]
+    TransactionAlreadyOpen,
+    #[snafu(display("Error inside callback"))]
+    CallbackError,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

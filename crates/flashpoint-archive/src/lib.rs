@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use game::{PartialGame, search::{GameSearch, PageTuple}, Game, AdditionalApp};
 use game_data::{GameData, PartialGameData};
+use platform::PlatformAppPath;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 use snafu::ResultExt;
-use tag::{PartialTag, Tag, TagSuggestion};
+use tag::{LooseTagAlias, PartialTag, Tag, TagSuggestion};
 use tag_category::{TagCategory, PartialTagCategory};
 use chrono::Utc;
 
@@ -23,7 +25,7 @@ pub mod tag_category;
 extern crate napi_derive;
 
 pub struct FlashpointArchive {
-    pool: Option<Pool<SqliteConnectionManager>>,
+    pool: Option<Pool<SqliteConnectionManager>>
 }
 
 impl FlashpointArchive {
@@ -115,9 +117,22 @@ impl FlashpointArchive {
         with_transaction!(&self.pool, |tx| {
             match partial_game.date_modified {
                 Some(_) => (),
-                None => partial_game.date_modified = Some(Utc::now().naive_utc()),
+                None => partial_game.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             }
             game::save(tx, partial_game).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn save_games(&self, partial_games: Vec<&mut PartialGame>) -> Result<()> {
+        with_transaction!(&self.pool, |tx| {
+            for partial_game in partial_games {
+                match partial_game.date_modified {
+                    Some(_) => (),
+                    None => partial_game.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+                }
+                game::save(tx, partial_game).context(error::SqliteSnafu)?;
+            }
+            Ok(())
         })
     }
 
@@ -187,21 +202,31 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn create_tag(&self, name: &str, category: Option<String>) -> Result<Tag> {
+    pub async fn create_tag(&self, name: &str, category: Option<String>, id: Option<i64>) -> Result<Tag> {
         with_transaction!(&self.pool, |conn| {
-            tag::create(conn, name, category).context(error::SqliteSnafu)
+            tag::create(conn, name, category, id).context(error::SqliteSnafu)
         })
     }
 
-    pub async fn save_tag(&self, partial: &PartialTag) -> Result<Tag> {
+    pub async fn save_tag(&self, partial: &mut PartialTag) -> Result<Tag> {
         with_transaction!(&self.pool, |conn| {
-            tag::save(conn, partial).context(error::SqliteSnafu)
+            match partial.date_modified {
+                Some(_) => (),
+                None => partial.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            }
+            tag::save(conn, &partial).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_tag(&self, name: &str) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
             tag::delete(conn, name).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn delete_tag_by_id(&self, id: i64) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            tag::delete_by_id(conn, id).context(error::SqliteSnafu)
         })
     }
 
@@ -235,15 +260,31 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn create_platform(&self, name: &str) -> Result<Tag> {
+    pub async fn create_platform(&self, name: &str, id: Option<i64>) -> Result<Tag> {
         with_transaction!(&self.pool, |conn| {
-            platform::create(conn, name).context(error::SqliteSnafu)
+            platform::create(conn, name, id).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn save_platform(&self, partial: &mut PartialTag) -> Result<Tag> {
+        with_transaction!(&self.pool, |conn| {
+            match partial.date_modified {
+                Some(_) => (),
+                None => partial.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            }
+            platform::save(conn, &partial).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_platform(&self, name: &str) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
             platform::delete(conn, name).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_delete_platform_by_id(&self, id: i64) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            platform::unsafe_delete_by_id(conn, id).context(error::SqliteSnafu)
         })
     }
 
@@ -295,6 +336,30 @@ impl FlashpointArchive {
         })
     }
 
+    pub async fn find_all_game_statuses(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_statuses(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn find_all_game_play_modes(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_play_modes(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn find_all_game_application_paths(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_application_paths(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn find_platform_app_paths(&self) -> Result<HashMap<String, Vec<PlatformAppPath>>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_platform_app_paths(conn).context(error::SqliteSnafu)
+        })
+    }
+
     pub async fn add_game_playtime(&self, game_id: &str, seconds: i64) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
             game::add_playtime(conn, game_id, seconds).context(error::SqliteSnafu)
@@ -304,6 +369,42 @@ impl FlashpointArchive {
     pub async fn clear_playtime_tracking(&self) -> Result<()> {
         with_connection!(&self.pool, |conn| {
             game::clear_playtime_tracking(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_save_platform(&self, tag: &Tag) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            platform::unsafe_save(conn, tag).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_insert_platform_aliases(&self, aliases: Vec<LooseTagAlias>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            platform::unsafe_insert_aliases(conn, aliases).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_delete_platform_aliases(&self, aliases: Vec<String>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            platform::unsafe_delete_aliases(conn, aliases).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_save_tag(&self, tag: &Tag) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            tag::unsafe_save(conn, tag).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_insert_tag_aliases(&self, aliases: Vec<LooseTagAlias>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            tag::unsafe_insert_aliases(conn, aliases).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn unsafe_delete_tag_aliases(&self, aliases: Vec<String>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            tag::unsafe_delete_aliases(conn, aliases).context(error::SqliteSnafu)
         })
     }
 
@@ -325,7 +426,11 @@ fn optimize_database(conn: &Connection) -> rusqlite::Result<()> {
 macro_rules! with_connection {
     ($pool:expr, $body:expr) => {
         match $pool {
-            Some(conn) => $body(&conn.get().unwrap()),
+            Some(conn) => {
+                let conn = &conn.get().unwrap();
+                conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
+                $body(conn)
+            },
             None => return Err(Error::DatabaseNotInitialized)
         }
     };
@@ -337,9 +442,12 @@ macro_rules! with_transaction {
         match $pool {
             Some(conn) => {
                 let mut conn = conn.get().unwrap();
+                conn.execute("PRAGMA foreign_keys=off;", ()).context(error::SqliteSnafu)?;
                 let tx = conn.transaction().context(error::SqliteSnafu)?;
                 let res = $body(&tx);
-                tx.commit().context(error::SqliteSnafu)?;
+                if res.is_ok() {
+                    tx.commit().context(error::SqliteSnafu)?;
+                }
                 res
             },
             None => return Err(Error::DatabaseNotInitialized)
@@ -509,8 +617,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parse_weird_user_input() {
-        let search = game::search::parse_user_input(r#"tag:"sonic""#);
+    async fn parse_user_search_input_assorted() {
+        game::search::parse_user_input("test");
+        game::search::parse_user_input(r#"tag:"sonic""#);
+        game::search::parse_user_input(r#"o_%$ dev:"san" disk t:7 potato"#);
     }
 
     #[tokio::test]
@@ -663,7 +773,7 @@ mod tests {
     async fn create_tag() {
         let mut flashpoint = FlashpointArchive::new();
         assert!(flashpoint.load_database(":memory:").is_ok());
-        let new_tag_res = flashpoint.create_tag("test", None).await;
+        let new_tag_res = flashpoint.create_tag("test", None, None).await;
         assert!(new_tag_res.is_ok());
         let new_tag = new_tag_res.unwrap();
         assert!(new_tag.category.is_some());
@@ -707,7 +817,7 @@ mod tests {
         };
         let new_game_res = flashpoint.create_game(&partial).await;
         assert!(new_game_res.is_ok());
-        assert!(flashpoint.create_tag("Adventure", None).await.is_ok());
+        assert!(flashpoint.create_tag("Adventure", None, None).await.is_ok());
         let saved_game = new_game_res.unwrap();
         let merged_tag_res = flashpoint.merge_tags("Action", "Adventure").await;
         assert!(merged_tag_res.is_ok());
@@ -749,7 +859,7 @@ mod tests {
     async fn create_platform() {
         let mut flashpoint = FlashpointArchive::new();
         assert!(flashpoint.load_database(":memory:").is_ok());
-        let new_tag_res = flashpoint.create_platform("test").await;
+        let new_tag_res = flashpoint.create_platform("test", None).await;
         assert!(new_tag_res.is_ok());
         let new_tag = new_tag_res.unwrap();
         assert!(new_tag.category.is_none());
@@ -762,7 +872,7 @@ mod tests {
     async fn search_tag_suggestions() {
         let mut flashpoint = FlashpointArchive::new();
         assert!(flashpoint.load_database(":memory:").is_ok());
-        let new_tag_res = flashpoint.create_tag("Action", None).await;
+        let new_tag_res = flashpoint.create_tag("Action", None, None).await;
         assert!(new_tag_res.is_ok());
         let suggs_res = flashpoint.search_tag_suggestions("Act").await;
         assert!(suggs_res.is_ok());
@@ -770,5 +880,33 @@ mod tests {
         let suggs_bad_res = flashpoint.search_tag_suggestions("Adventure").await;
         assert!(suggs_bad_res.is_ok());
         assert_eq!(suggs_bad_res.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn update_game_when_platform_changed() {
+        let mut flashpoint = FlashpointArchive::new();
+        assert!(flashpoint.load_database(":memory:").is_ok());
+        let partial_game = game::PartialGame {
+            title: Some(String::from("Test Game")),
+            tags: Some(vec!["Action"].into()),
+            platforms: Some(vec!["Flash", "HTML5"].into()),
+            primary_platform: Some("HTML5".into()),
+            ..game::PartialGame::default()
+        };
+        let result = flashpoint.create_game(&partial_game).await;
+        assert!(result.is_ok());
+        let old_game = result.unwrap();
+        let mut platform = flashpoint.find_platform("HTML5").await.unwrap().unwrap();
+        println!("{} - {}", platform.id, platform.name);
+        platform.name = String::from("Wiggle");
+        let mut partial = PartialTag::from(platform);
+        println!("{} - {}", partial.id, partial.name);
+        let save_res = flashpoint.save_platform(&mut partial).await;
+        assert!(save_res.is_ok());
+        assert_eq!(save_res.unwrap().name, "Wiggle");
+        let new_game = flashpoint.find_game(&old_game.id).await.unwrap().unwrap();
+        println!("{}", new_game.platforms);
+        assert_eq!(new_game.primary_platform, "Wiggle");
+        assert!(new_game.platforms.contains(&"Wiggle".to_string()));
     }
 }
