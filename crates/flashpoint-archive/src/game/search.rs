@@ -12,6 +12,12 @@ pub enum StringOrVec {
     Multiple(Vec<String>),
 }
 
+#[derive(Debug, Clone)]
+pub struct TagFilterInfo {
+    pub key: String,
+    pub dirty: bool,
+}
+
 impl ToSql for StringOrVec {
     fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
         match self {
@@ -110,6 +116,12 @@ pub struct FieldFilter {
     pub series: Option<Vec<String>>,
     pub tags: Option<Vec<String>>,
     pub platforms: Option<Vec<String>>,
+    pub play_mode: Option<Vec<String>>,
+    pub status: Option<Vec<String>>,
+    pub notes: Option<Vec<String>>,
+    pub source: Option<Vec<String>>,
+    pub original_description: Option<Vec<String>>,
+    pub language: Option<Vec<String>>
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +143,12 @@ struct ForcedFieldFilter {
     pub series: Vec<String>,
     pub tags: Vec<String>,
     pub platforms: Vec<String>,
+    pub play_mode: Vec<String>,
+    pub status: Vec<String>,
+    pub notes: Vec<String>,
+    pub source: Vec<String>,
+    pub original_description: Vec<String>,
+    pub language: Vec<String>
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -194,6 +212,12 @@ impl Default for FieldFilter {
             series: None,
             tags: None,
             platforms: None,
+            play_mode: None,
+            status: None,
+            notes: None,
+            source: None,
+            original_description: None,
+            language: None
         }
     }
 }
@@ -221,6 +245,12 @@ impl Default for ForcedFieldFilter {
             series: vec![],
             tags: vec![],
             platforms: vec![],
+            play_mode: vec![],
+            status: vec![],
+            notes: vec![],
+            source: vec![],
+            original_description: vec![],
+            language: vec![]
         }
     }
 }
@@ -255,6 +285,24 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.whitelist.platforms.len() > 0 {
             search.whitelist.platforms = Some(value.whitelist.platforms.clone());
         }
+        if value.whitelist.play_mode.len() > 0 {
+            search.whitelist.play_mode = Some(value.whitelist.play_mode.clone());
+        }
+        if value.whitelist.status.len() > 0 {
+            search.whitelist.status = Some(value.whitelist.status.clone());
+        }
+        if value.whitelist.notes.len() > 0 {
+            search.whitelist.notes = Some(value.whitelist.notes.clone());
+        }
+        if value.whitelist.source.len() > 0 {
+            search.whitelist.source = Some(value.whitelist.source.clone());
+        }
+        if value.whitelist.original_description.len() > 0 {
+            search.whitelist.original_description = Some(value.whitelist.original_description.clone());
+        }
+        if value.whitelist.language.len() > 0 {
+            search.whitelist.language = Some(value.whitelist.language.clone());
+        }
 
         // Blacklist
 
@@ -281,6 +329,24 @@ impl From<&ForcedGameFilter> for GameFilter {
         }
         if value.blacklist.platforms.len() > 0 {
             search.blacklist.platforms = Some(value.blacklist.platforms.clone());
+        }
+        if value.blacklist.play_mode.len() > 0 {
+            search.blacklist.play_mode = Some(value.blacklist.play_mode.clone());
+        }
+        if value.blacklist.status.len() > 0 {
+            search.blacklist.status = Some(value.blacklist.status.clone());
+        }
+        if value.blacklist.notes.len() > 0 {
+            search.blacklist.notes = Some(value.blacklist.notes.clone());
+        }
+        if value.blacklist.source.len() > 0 {
+            search.blacklist.source = Some(value.blacklist.source.clone());
+        }
+        if value.blacklist.original_description.len() > 0 {
+            search.blacklist.original_description = Some(value.blacklist.original_description.clone());
+        }
+        if value.blacklist.language.len() > 0 {
+            search.blacklist.language = Some(value.blacklist.language.clone());
         }
 
         // Exact whitelist
@@ -309,6 +375,24 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.exact_whitelist.platforms.len() > 0 {
             search.exact_whitelist.platforms = Some(value.exact_whitelist.platforms.clone());
         }
+        if value.exact_whitelist.play_mode.len() > 0 {
+            search.whitelist.play_mode = Some(value.exact_whitelist.play_mode.clone());
+        }
+        if value.exact_whitelist.status.len() > 0 {
+            search.whitelist.status = Some(value.exact_whitelist.status.clone());
+        }
+        if value.exact_whitelist.notes.len() > 0 {
+            search.whitelist.notes = Some(value.exact_whitelist.notes.clone());
+        }
+        if value.exact_whitelist.source.len() > 0 {
+            search.whitelist.source = Some(value.exact_whitelist.source.clone());
+        }
+        if value.exact_whitelist.original_description.len() > 0 {
+            search.whitelist.original_description = Some(value.exact_whitelist.original_description.clone());
+        }
+        if value.exact_whitelist.language.len() > 0 {
+            search.whitelist.language = Some(value.exact_whitelist.language.clone());
+        }
 
         // Exact blacklist
 
@@ -335,6 +419,24 @@ impl From<&ForcedGameFilter> for GameFilter {
         }
         if value.exact_blacklist.platforms.len() > 0 {
             search.exact_blacklist.platforms = Some(value.exact_blacklist.platforms.clone());
+        }
+        if value.exact_blacklist.play_mode.len() > 0 {
+            search.blacklist.play_mode = Some(value.exact_blacklist.play_mode.clone());
+        }
+        if value.exact_blacklist.status.len() > 0 {
+            search.blacklist.status = Some(value.exact_blacklist.status.clone());
+        }
+        if value.exact_blacklist.notes.len() > 0 {
+            search.blacklist.notes = Some(value.exact_blacklist.notes.clone());
+        }
+        if value.exact_blacklist.source.len() > 0 {
+            search.blacklist.source = Some(value.exact_blacklist.source.clone());
+        }
+        if value.exact_blacklist.original_description.len() > 0 {
+            search.blacklist.original_description = Some(value.exact_blacklist.original_description.clone());
+        }
+        if value.exact_blacklist.language.len() > 0 {
+            search.blacklist.language = Some(value.exact_blacklist.language.clone());
         }
 
         search
@@ -549,6 +651,18 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
 pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result<Vec<Game>> {
     s.limit = count;
     s.order.column = GameSearchSortable::RANDOM;
+
+    // Update tag filter indexing
+    if let Some(tags) = &s.with_tag_filter {
+        if tags.len() > 0 {
+            let mut filtered_search = GameSearch::default();
+            filtered_search.limit = 999999999;
+            filtered_search.filter.exact_blacklist.tags = Some(tags.to_vec());
+            filtered_search.filter.match_any = true;
+            new_tag_filter_index(conn, &mut filtered_search)?;
+        }
+    }
+
     search(conn, &s)
 }
 
@@ -662,24 +776,52 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
     exact_whitelist_clause!(add_clause, "library", &filter.exact_whitelist.library);
     exact_whitelist_clause!(add_clause, "developer", &filter.exact_whitelist.developer);
     exact_whitelist_clause!(add_clause, "publisher", &filter.exact_whitelist.publisher);
+    exact_whitelist_clause!(add_clause, "series", &filter.exact_whitelist.series);
+    exact_whitelist_clause!(add_clause, "playMode", &filter.exact_whitelist.play_mode);
+    exact_whitelist_clause!(add_clause, "status", &filter.exact_whitelist.status);
+    exact_whitelist_clause!(add_clause, "notes", &filter.exact_whitelist.notes);
+    exact_whitelist_clause!(add_clause, "source", &filter.exact_whitelist.source);
+    exact_whitelist_clause!(add_clause, "originalDescription", &filter.exact_whitelist.original_description);
+    exact_whitelist_clause!(add_clause, "language", &filter.exact_whitelist.language);
 
     // exact blacklist
     exact_blacklist_clause!(add_clause, "id", &filter.exact_blacklist.id);
     exact_blacklist_clause!(add_clause, "library", &filter.exact_blacklist.library);
     exact_blacklist_clause!(add_clause, "developer", &filter.exact_blacklist.developer);
     exact_blacklist_clause!(add_clause, "publisher", &filter.exact_blacklist.publisher);
+    exact_blacklist_clause!(add_clause, "series", &filter.exact_blacklist.series);
+    exact_blacklist_clause!(add_clause, "playMode", &filter.exact_blacklist.play_mode);
+    exact_blacklist_clause!(add_clause, "status", &filter.exact_blacklist.status);
+    exact_blacklist_clause!(add_clause, "notes", &filter.exact_blacklist.notes);
+    exact_blacklist_clause!(add_clause, "source", &filter.exact_blacklist.source);
+    exact_blacklist_clause!(add_clause, "originalDescription", &filter.exact_blacklist.original_description);
+    exact_blacklist_clause!(add_clause, "language", &filter.exact_blacklist.language);
 
     // whitelist
     whitelist_clause!(add_clause, "id", &filter.whitelist.id);
     whitelist_clause!(add_clause, "library", &filter.whitelist.library);
     whitelist_clause!(add_clause, "developer", &filter.whitelist.developer);
     whitelist_clause!(add_clause, "publisher", &filter.whitelist.publisher);
+    whitelist_clause!(add_clause, "series", &filter.whitelist.series);
+    whitelist_clause!(add_clause, "playMode", &filter.whitelist.play_mode);
+    whitelist_clause!(add_clause, "status", &filter.whitelist.status);
+    whitelist_clause!(add_clause, "notes", &filter.whitelist.notes);
+    whitelist_clause!(add_clause, "source", &filter.whitelist.source);
+    whitelist_clause!(add_clause, "originalDescription", &filter.whitelist.original_description);
+    whitelist_clause!(add_clause, "language", &filter.whitelist.language);
 
     // blacklist
     blacklist_clause!(add_clause, "id", &filter.blacklist.id);
     blacklist_clause!(add_clause, "library", &filter.blacklist.library);
     blacklist_clause!(add_clause, "developer", &filter.blacklist.developer);
     blacklist_clause!(add_clause, "publisher", &filter.blacklist.publisher);
+    blacklist_clause!(add_clause, "series", &filter.blacklist.series);
+    blacklist_clause!(add_clause, "playMode", &filter.blacklist.play_mode);
+    blacklist_clause!(add_clause, "status", &filter.blacklist.status);
+    blacklist_clause!(add_clause, "notes", &filter.blacklist.notes);
+    blacklist_clause!(add_clause, "source", &filter.blacklist.source);
+    blacklist_clause!(add_clause, "originalDescription", &filter.blacklist.original_description);
+    blacklist_clause!(add_clause, "language", &filter.blacklist.language);
 
     let mut add_tagged_clause = |tag_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
         if let Some(value_list) = values {
@@ -694,7 +836,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
                 params.push(StringOrVec::Multiple(value_list.clone()));
 
                 let tag_query = format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                SELECT tagId FROM {}_alias WHERE name IN rarray(?)))", comparator, tag_name, tag_name, tag_name, tag_name);
+                SELECT {}Id FROM {}_alias WHERE name IN rarray(?)))", comparator, tag_name, tag_name, tag_name, tag_name, tag_name);
 
                 where_clauses.push(tag_query);
             } else {
@@ -719,25 +861,25 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
                     false => {
                         if inner_tag_queries.len() == 1 {
                             format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                                SELECT tagId FROM {}_alias WHERE {})
-                            )", comparator, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0])
+                                SELECT {}Id FROM {}_alias WHERE {})
+                            )", comparator, tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0])
                         } else {
                             let mut q = format!("SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                                    SELECT tagId FROM {}_alias WHERE {}
-                                )", tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0]);
+                                    SELECT {}Id FROM {}_alias WHERE {}
+                                )", tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0]);
                             for inner_tag_query in inner_tag_queries.iter().skip(1) {
                                 let part = format!(" AND gameId IN (
                                     SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                                        SELECT tagId FROM {}_alias WHERE {}
+                                        SELECT {}Id FROM {}_alias WHERE {}
                                     )
-                                )", tag_name, tag_name, tag_name, tag_name, inner_tag_query);
+                                )", tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_query);
                                 q.push_str(&part);
                             }
                             format!("game.id {} ({})", comparator, q)
                         }
                     },
                     true => format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                    SELECT tagId FROM {}_alias WHERE name IN {}))", comparator, tag_name, tag_name, tag_name, tag_name, inner_tag_queries.join(" OR "))
+                    SELECT {}Id FROM {}_alias WHERE name IN {}))", comparator, tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_queries.join(" OR "))
                 };
 
                 where_clauses.push(tag_query);
@@ -751,10 +893,13 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
     add_tagged_clause("tag", &filter.exact_whitelist.tags, true, false);
     add_tagged_clause("tag", &filter.exact_blacklist.tags, true, true);
 
+    add_tagged_clause("platform", &filter.whitelist.platforms, false, false);
+    add_tagged_clause("platform", &filter.blacklist.platforms, false, true);
+    add_tagged_clause("platform", &filter.exact_whitelist.platforms, true, false);
+    add_tagged_clause("platform", &filter.exact_blacklist.platforms, true, true);
+
     let mut add_multi_clause = |field_names: Vec<&str>, filter: &Option<Vec<String>>, exact: bool, blacklist: bool| {
         if let Some(value_list) = filter {
-            let mut multi_where_clauses = vec![];
-
             let comparator = match (blacklist, exact) {
                 (true, true) => "!=",
                 (true, false) => "NOT LIKE",
@@ -763,8 +908,9 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
             };
 
             for value in value_list {
+                let mut value_clauses = vec![];
                 for field_name in field_names.clone() {
-                    multi_where_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                    value_clauses.push(format!("game.{} {} ?", field_name, comparator));
                     if exact {
                         params.push(StringOrVec::Single(value.clone()));
                     } else {
@@ -772,17 +918,18 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
                         params.push(StringOrVec::Single(p));
                     }
                 }
+                where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
             }
-
-            where_clauses.push(format!("({})", &multi_where_clauses.join(" OR ")));
         }
     };
 
     // whitelist
     add_multi_clause(vec!["title", "alternateTitles"], &filter.whitelist.title, false, false);
+    add_multi_clause(vec!["title", "alternateTitles", "developer", "publisher", "series"], &filter.whitelist.generic, false, false);
     
     // blacklist
     add_multi_clause(vec!["title", "alternateTitles"], &filter.blacklist.title, false, true);
+    add_multi_clause(vec!["title", "alternateTitles", "developer", "publisher", "series"], &filter.blacklist.generic, false, true);
 
     if filter.match_any {
         return where_clauses.join(" OR ");
@@ -846,10 +993,19 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
+    search.limit = 9999999999999999;
+    search.filter = GameFilter::default();
     search.filter.match_any = true;
 
-    if search.filter.exact_blacklist.tags.is_none() {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
+    if let Some(t) = search.with_tag_filter.clone() {
+        if t.len() > 0 {
+            search.filter.exact_blacklist.tags = Some(t);
+            search.with_tag_filter = None;
+        }
+    }
+
+    if search.filter.exact_blacklist.tags.is_none() || search.filter.exact_blacklist.tags.clone().unwrap().len() == 0 {
+        return Ok(())
     }
 
     let mut tags = search.filter.exact_blacklist.tags.clone().unwrap();
@@ -857,16 +1013,26 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let tags_key = tags.join(";");
 
     // Check against existing key
-    let existing_key: Option<String> = conn.query_row("SELECT key FROM tag_filter_index_info", (), |row| {
-        Ok(row.get(0)?)
+    let tag_filter_info = conn.query_row("SELECT key, dirty FROM tag_filter_index_info", (), |row| {
+        Ok(TagFilterInfo{
+            key: row.get(0)?,
+            dirty: row.get(1)?,
+        })
     }).optional()?;
 
-    if existing_key.is_some() {
-        if tags_key == existing_key.unwrap() {
-            // Same tag list already filtered, ignore
-            return Ok(());
-        }
+    match tag_filter_info {
+        Some(info) => {
+            // Index already built and clean, return
+            if !info.dirty && tags_key == info.key {
+                return Ok(())
+            }
+        },
+        None => {
+            // No existing index, continue
+        },
     }
+
+    println!("filtering {} tags", tags.len());
 
     conn.execute("DELETE FROM tag_filter_index", ())?; // Empty existing index
 
@@ -875,14 +1041,21 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
+    println!("{}", format_query(&query, params.clone()));
+
     let mut stmt = conn.prepare(query.as_str())?;
     stmt.execute(params_as_refs.as_slice())?;
 
     tags.sort();
 
     conn.execute("DELETE FROM tag_filter_index_info", ())?; // Empty existing index info
-    conn.execute("INSERT INTO tag_filter_index_info (key) VALUES (?)", params![tags_key])?;
+    conn.execute("INSERT INTO tag_filter_index_info (key, dirty) VALUES (?, 0)", params![tags_key])?;
 
+    Ok(())
+}
+
+pub fn mark_index_dirty(conn: &Connection) -> Result<()> {
+    conn.execute("UPDATE tag_filter_index_info SET dirty = 1", ())?;
     Ok(())
 }
 
@@ -1023,15 +1196,21 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             let value = working_value.clone();
 
             // Has a complete value, add to filter
-            match working_key.as_str() {
+            match working_key.to_lowercase().as_str() {
                 "id" => list.id.push(value),
                 "library" => list.library.push(value),
                 "title" => list.title.push(value),
-                "developer" => list.developer.push(value),
-                "publisher" => list.publisher.push(value),
+                "dev" | "developer" => list.developer.push(value),
+                "pub" | "publisher" => list.publisher.push(value),
                 "series" => list.series.push(value),
                 "tag" => list.tags.push(value),
                 "platform" => list.platforms.push(value),
+                "playmode" => list.play_mode.push(value),
+                "status" => list.status.push(value),
+                "notes" => list.notes.push(value),
+                "source" => list.source.push(value),
+                "desc" |"originaldescription" => list.original_description.push(value),
+                "lang" | "language" => list.language.push(value),
                 _ => list.generic.push(value),
             }
 

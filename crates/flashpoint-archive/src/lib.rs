@@ -6,12 +6,13 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 use snafu::ResultExt;
-use tag::{LooseTagAlias, PartialTag, Tag, TagSuggestion};
+use tag::{PartialTag, Tag, TagSuggestion};
 use tag_category::{TagCategory, PartialTagCategory};
 use chrono::Utc;
 
 mod error;
 use error::{Error, Result};
+use update::{RemoteCategory, RemoteDeletedGamesRes, RemoteGamesRes, RemotePlatform, RemoteTag};
 
 pub mod game;
 pub mod game_data;
@@ -19,6 +20,7 @@ mod migration;
 pub mod platform;
 pub mod tag;
 pub mod tag_category;
+pub mod update;
 
 #[cfg(feature = "napi")]
 #[macro_use]
@@ -89,15 +91,21 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn search_tag_suggestions(&self, partial: &str) -> Result<Vec<TagSuggestion>> {
+    pub async fn search_tag_suggestions(&self, partial: &str, blacklist: Vec<String>) -> Result<Vec<TagSuggestion>> {
         with_connection!(&self.pool, |conn| {
-            tag::search_tag_suggestions(conn, "tag", partial).context(error::SqliteSnafu)
+            tag::search_tag_suggestions(conn, partial, blacklist).context(error::SqliteSnafu)
         })
     }
 
     pub async fn search_platform_suggestions(&self, partial: &str) -> Result<Vec<TagSuggestion>> {
         with_connection!(&self.pool, |conn| {
-            tag::search_tag_suggestions(conn, "platform", partial).context(error::SqliteSnafu)
+            platform::search_platform_suggestions(conn, partial).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn find_all_game_ids(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_all_ids(conn).context(error::SqliteSnafu)
         })
     }
 
@@ -151,6 +159,12 @@ impl FlashpointArchive {
     pub async fn find_add_app_by_id(&self, id: &str) -> Result<Option<AdditionalApp>> {
         with_connection!(&self.pool, |conn| {
             game::find_add_app_by_id(conn, id).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn create_add_app(&self, add_app: &mut AdditionalApp) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            game::create_add_app(conn, add_app).context(error::SqliteSnafu)
         })
     }
 
@@ -282,12 +296,6 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn unsafe_delete_platform_by_id(&self, id: i64) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
-            platform::unsafe_delete_by_id(conn, id).context(error::SqliteSnafu)
-        })
-    }
-
     pub async fn count_platforms(&self) -> Result<i64> {
         with_connection!(&self.pool, |conn| {
             platform::count(conn).context(error::SqliteSnafu)
@@ -372,39 +380,38 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn unsafe_save_platform(&self, tag: &Tag) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
-            platform::unsafe_save(conn, tag).context(error::SqliteSnafu)
+    pub async fn force_games_active_data_most_recent(&self) -> Result<()> {
+        with_connection!(&self.pool, |conn| {
+            game::force_active_data_most_recent(conn).context(error::SqliteSnafu)
         })
     }
 
-    pub async fn unsafe_insert_platform_aliases(&self, aliases: Vec<LooseTagAlias>) -> Result<()> {
+    pub async fn update_apply_categories(&self, cats: Vec<RemoteCategory>) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
-            platform::unsafe_insert_aliases(conn, aliases).context(error::SqliteSnafu)
+            update::apply_categories(conn, cats)
         })
     }
 
-    pub async fn unsafe_delete_platform_aliases(&self, aliases: Vec<String>) -> Result<()> {
+    pub async fn update_apply_platforms(&self, platforms: Vec<RemotePlatform>) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
-            platform::unsafe_delete_aliases(conn, aliases).context(error::SqliteSnafu)
+            update::apply_platforms(conn, platforms)
+        })
+    }
+    
+    pub async fn update_apply_tags(&self, tags: Vec<RemoteTag>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            update::apply_tags(conn, tags)
         })
     }
 
-    pub async fn unsafe_save_tag(&self, tag: &Tag) -> Result<()> {
+    pub async fn update_apply_games(&self, games_res: &RemoteGamesRes) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
-            tag::unsafe_save(conn, tag).context(error::SqliteSnafu)
+            update::apply_games(conn, games_res)
         })
     }
-
-    pub async fn unsafe_insert_tag_aliases(&self, aliases: Vec<LooseTagAlias>) -> Result<()> {
+    pub async fn update_delete_games(&self, games_res: &RemoteDeletedGamesRes) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
-            tag::unsafe_insert_aliases(conn, aliases).context(error::SqliteSnafu)
-        })
-    }
-
-    pub async fn unsafe_delete_tag_aliases(&self, aliases: Vec<String>) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
-            tag::unsafe_delete_aliases(conn, aliases).context(error::SqliteSnafu)
+            update::delete_games(conn, games_res)
         })
     }
 
@@ -446,7 +453,9 @@ macro_rules! with_transaction {
                 let tx = conn.transaction().context(error::SqliteSnafu)?;
                 let res = $body(&tx);
                 if res.is_ok() {
+                    println!("Applying transaction");
                     tx.commit().context(error::SqliteSnafu)?;
+                    println!("Applied transaction");
                 }
                 res
             },
@@ -874,10 +883,10 @@ mod tests {
         assert!(flashpoint.load_database(":memory:").is_ok());
         let new_tag_res = flashpoint.create_tag("Action", None, None).await;
         assert!(new_tag_res.is_ok());
-        let suggs_res = flashpoint.search_tag_suggestions("Act").await;
+        let suggs_res = flashpoint.search_tag_suggestions("Act", vec![]).await;
         assert!(suggs_res.is_ok());
         assert_eq!(suggs_res.unwrap().len(), 1);
-        let suggs_bad_res = flashpoint.search_tag_suggestions("Adventure").await;
+        let suggs_bad_res = flashpoint.search_tag_suggestions("Adventure", vec![]).await;
         assert!(suggs_bad_res.is_ok());
         assert_eq!(suggs_bad_res.unwrap().len(), 0);
     }

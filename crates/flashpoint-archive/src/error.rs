@@ -1,3 +1,4 @@
+use chrono::ParseError;
 use rusqlite;
 use snafu::prelude::*;
 
@@ -16,8 +17,11 @@ pub enum Error {
     MutexLockFailed,
     #[snafu(display("Transaction already open"))]
     TransactionAlreadyOpen,
-    #[snafu(display("Error inside callback"))]
-    CallbackError,
+    #[snafu(display("Failed to parse date '{}': {}", date, source))]
+    DateParseError {
+        date: String,
+        source: ParseError,
+    },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

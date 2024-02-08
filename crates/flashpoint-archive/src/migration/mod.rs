@@ -204,6 +204,9 @@ pub fn get() -> Migrations<'static> {
                 PRIMARY KEY("id")
             );
             "#),
+        M::up(r#"
+            ALTER TABLE tag_filter_index_info ADD COLUMN dirty INTEGER DEFAULT 1;
+            "#),
     ]);
 
     migrations

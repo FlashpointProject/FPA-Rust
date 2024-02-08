@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use rusqlite::{params, types::Value, Connection, OptionalExtension, Result};
 
-use crate::{tag::{LooseTagAlias, PartialTag, Tag}, game::search::StringOrVec};
+use crate::tag::{PartialTag, Tag, TagSuggestion};
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
@@ -90,6 +90,8 @@ pub fn find_or_create(conn: &Connection, name: &str, id: Option<i64>) -> Result<
     if let Some(platform) = platform_result {
         Ok(platform)
     } else {
+        // Clear a lingering alias
+        conn.execute("DELETE FROM platform_alias WHERE name = ?", params![name])?;
         create(conn, name, id)
     }
 }
@@ -160,60 +162,6 @@ pub fn  find_by_id(conn: &Connection, id: i64) -> Result<Option<Tag>> {
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e),
     }
-}
-
-// Recommended to follow with save afterwards to enforce game normalized fields
-pub fn unsafe_save(conn: &Connection, tag: &Tag) -> Result<()> {
-    // Allow use of rarray() in SQL queries
-    rusqlite::vtab::array::load_module(conn)?;
-
-    let mut new_tag_aliases = vec![];
-
-    let mut stmt = conn.prepare("SELECT platformId FROM platform_alias WHERE name = ?")?;
-
-    // Check for collisions before updating
-    for alias in tag.aliases.clone() {
-        let existing_platform_id = stmt.query_row(params![alias], |row| row.get::<_, i64>(0)).optional()?;
-        match existing_platform_id {
-            Some(id) => {
-                if id != tag.id {
-                    return Err(rusqlite::Error::QueryReturnedNoRows) // TODO: Make this a proper error
-                }
-            },
-            None => {
-                new_tag_aliases.push(alias);
-            }
-        }
-    }
-
-    println!("checked aliases");
-
-    // Apply flat edits
-    stmt = conn.prepare("UPDATE platform SET description = ?, dateModified = ? WHERE id = ?")?;
-    stmt.execute(params![tag.description, tag.date_modified, tag.id])?;
-
-    println!("done flat edit");
-
-    // Remove old aliases
-    let mut stmt = "DELETE FROM platform_alias WHERE platformId = ? AND name NOT IN rarray(?)";
-    let alias_rc = Rc::new(tag.aliases.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
-    conn.execute(stmt, params![tag.id, alias_rc])?;
-
-    println!("removed old aliases");
-    
-    // Add new aliases
-    for alias in new_tag_aliases {
-        stmt = "INSERT INTO platform_alias (name, platformId) VALUES (?, ?)";
-        conn.execute(stmt, params![alias, tag.id])?;
-    }
-
-    println!("added new aliases");
-
-    // Update primary alias id
-    stmt = "UPDATE platform SET primaryAliasId = (SELECT id FROM platform_alias WHERE name = ?) WHERE id = ?";
-    conn.execute(stmt, params![tag.name, tag.id])?;
-
-    Ok(())
 }
 
 pub fn save(conn: &Connection, partial: &PartialTag) -> Result<Tag> {
@@ -336,49 +284,46 @@ pub fn delete(conn: &Connection, name: &str) -> Result<()> {
     }
 }
 
-//  Function cannot modify games that use this primary platform
-pub fn unsafe_delete_by_id(conn: &Connection, id: i64) -> Result<()> {
-    let mut stmt = "DELETE FROM platform_alias WHERE platformId = ?";
-    conn.execute(stmt, params![id])?;
+pub fn search_platform_suggestions(
+    conn: &Connection,
+    partial: &str,
+) -> Result<Vec<TagSuggestion>> {
+    let mut suggestions = vec![];
 
-    stmt = "DELETE FROM platform WHERE id = ?";
-    conn.execute(stmt, params![id])?;
+    let query = "SELECT sugg.tagId, sugg.matched_alias, count(game_tag.gameId) as gameCount, sugg.primary_alias FROM (
+        SELECT 
+			ta1.platformId as tagId,
+			ta1.name AS matched_alias,
+			ta2.name AS primary_alias
+		FROM 
+			platform_alias ta1
+		JOIN 
+        platform t ON ta1.platform_aliasId = t.id
+		JOIN 
+        platform_alias ta2 ON t.primaryAliasId = ta2.id
+		WHERE 
+			ta1.name LIKE ?
+    ) sugg
+    LEFT JOIN game_platforms_platform game_tag ON game_tag.platformId = sugg.tagId
+    GROUP BY sugg.matched_alias
+    ORDER BY COUNT(game_tag.gameId) DESC, sugg.matched_alias ASC";
 
-    // Update game platformsStr fields
-    stmt = "UPDATE game
-    SET platformsStr = (
-        SELECT IFNULL(string_agg(pa.name, '; '), '')
-        FROM game_platforms_platform gpp
-        JOIN platform p ON gpp.platformId = p.id
-        JOIN platform_alias pa ON p.primaryAliasId = pa.id
-        WHERE gpp.gameId = game.id
-    ) WHERE game.id IN (
-        SELECT gameId FROM game_platforms_platform WHERE platformId = ?   
-    )";
-    conn.execute(stmt, params![id])?;
+    let mut stmt = conn.prepare(&query)?;
+    let mut likeable = String::from(partial);
+    likeable.push_str("%");
+    let results = stmt.query_map(params![&likeable], |row| {
+        Ok(TagSuggestion {
+            id: row.get(0)?,
+            matched_from: row.get(1)?,
+            games_count: row.get(2)?,
+            name: row.get(3)?,
+            category: None,
+        })
+    })?;
 
-    stmt = "DELETE FROM game_platforms_platform WHERE platformId = ?";
-    conn.execute(stmt, params![id])?;
-
-    Ok(())
-}
-
-pub fn unsafe_insert_aliases(conn: &Connection, aliases: Vec<LooseTagAlias>) -> Result<()> {
-    let mut stmt = conn.prepare("INSERT INTO platform_alias (platformId, name) VALUES (?, ?)")?;
-
-    for alias in aliases {
-        stmt.execute(params![alias.id, alias.value])?;
+    for sugg in results {
+        suggestions.push(sugg?);
     }
 
-    Ok(())
-}
-
-pub fn unsafe_delete_aliases(conn: &Connection, aliases: Vec<String>) -> Result<()> {
-    // Allow use of rarray() in SQL queries
-    rusqlite::vtab::array::load_module(conn)?;
-    let aliases = StringOrVec::Multiple(aliases);
-    let mut stmt = conn.prepare("DELETE FROM platform_alias WHERE name IN rarray(?)")?;
-    stmt.execute(params![aliases])?;
-
-    Ok(())
+    Ok(suggestions)
 }

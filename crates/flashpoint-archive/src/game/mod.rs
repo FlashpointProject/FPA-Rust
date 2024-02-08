@@ -9,10 +9,9 @@ use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut},
 
 use crate::{tag::{Tag, self}, platform::{self, PlatformAppPath}, game_data::{GameData, PartialGameData}};
 
-use self::search::{GameSearch, GameSearchRelations};
+use self::search::{mark_index_dirty, GameSearch, GameSearchRelations};
 
 pub mod search;
-pub mod update;
 
 #[cfg(feature = "napi")]
 use napi::bindgen_prelude::{ToNapiValue, FromNapiValue};
@@ -252,6 +251,17 @@ pub struct PartialGame {
     pub add_apps: Option<Vec<AdditionalApp>>,
 }
 
+pub fn find_all_ids(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM game")?;
+
+    let ids = stmt.query_map([], |row| {
+        row.get(0)
+    })?
+    .collect::<Result<Vec<String>>>()?;
+
+    Ok(ids)
+}
+
 pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, alternateTitles, series, developer, publisher, platformsStr, \
@@ -389,6 +399,8 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
         conn.execute("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)", params![game.id, platform])?;
     }
 
+    mark_index_dirty(conn)?;
+
     Ok(game)
 }
 
@@ -489,6 +501,8 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
         existing_game.detailed_platforms = get_game_platforms(conn, &existing_game.id)?.into();
         existing_game.detailed_tags = get_game_tags(conn, &existing_game.id)?.into();
         existing_game.game_data = get_game_data(conn, &existing_game.id)?.into();
+
+        mark_index_dirty(conn)?;
 
         Ok(existing_game)
     } else {
@@ -692,6 +706,7 @@ pub fn create_game_data(conn: &Connection, partial: &PartialGameData) -> Result<
     // Make sure game exists
     let game = find(conn, &partial.game_id)?;
     if game.is_none() {
+        println!("{} missing", &partial.game_id);
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
@@ -880,6 +895,15 @@ pub fn find_add_app_by_id(conn: &Connection, id: &str) -> Result<Option<Addition
     }).optional()
 }
 
+pub fn create_add_app(conn: &Connection, add_app: &mut AdditionalApp) -> Result<()> {
+    let id = conn.query_row("INSERT INTO additional_app (
+        id, applicationPath, launchCommand, name, parentGameId, autoRunBefore, waitForExit
+    ) VALUES (?, ?, ?, ?, ?, ? , ?) RETURNING id", params![add_app.id, add_app.application_path, add_app.launch_command,
+    add_app.name, add_app.parent_game_id, add_app.auto_run_before, add_app.wait_for_exit], |row| row.get::<_, String>(0))?;
+    add_app.id = id;
+    Ok(())
+}
+
 pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()> {
     let mut game = match find(conn, game_id)? {
         Some(g) => g,
@@ -897,6 +921,13 @@ pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()
 pub fn clear_playtime_tracking(conn: &Connection) -> Result<()> {
     let mut stmt = conn.prepare("UPDATE game SET playtime = 0, play_counter = 0, last_played = NULL")?;
     stmt.execute(())?;
+    Ok(())
+}
+
+pub fn force_active_data_most_recent(conn: &Connection) -> Result<()> {
+    conn.execute("UPDATE game
+    SET activeDataId = (SELECT game_data.id FROM game_data WHERE game.id = game_data.gameId ORDER BY game_data.dateAdded DESC LIMIT 1)
+    WHERE game.activeDataId = -1", ())?;
     Ok(())
 }
 
@@ -984,6 +1015,12 @@ impl Default for Game {
 
 impl Game {
     fn apply_partial(&mut self, source: &PartialGame) {
+        if source.id == "" {
+            self.id = Uuid::new_v4().to_string();
+        } else {
+            self.id = source.id.clone();
+        }
+
         if let Some(library) = source.library.clone() {
             self.library = library;
         }
