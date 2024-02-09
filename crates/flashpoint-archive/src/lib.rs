@@ -633,6 +633,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn parse_user_search_input_sizes() {
+        let search = game::search::parse_user_input("tags>5 addapps=3 gamedata<12 test>generic");
+        assert!(search.filter.higher_than.tags.is_some());
+        assert_eq!(search.filter.higher_than.tags.unwrap(), 5);
+        assert!(search.filter.equal_to.add_apps.is_some());
+        assert_eq!(search.filter.equal_to.add_apps.unwrap(), 3);
+        assert!(search.filter.lower_than.game_data.is_some());
+        assert_eq!(search.filter.lower_than.game_data.unwrap(), 12);
+        assert!(search.filter.whitelist.generic.is_some());
+        let generics = search.filter.whitelist.generic.unwrap();
+        assert_eq!(generics.len(), 1);
+        assert_eq!(generics[0], "test>generic");
+    }
+
+    #[tokio::test]
     async fn find_game() {
         let mut flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);
@@ -728,6 +743,7 @@ mod tests {
     async fn parse_user_search_input() {
         let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario"#;
         let search = game::search::parse_user_input(input);
+        println!("{:?}", search);
         assert!(search.filter.whitelist.generic.is_some());
         assert_eq!(search.filter.whitelist.generic.unwrap()[0], "sonic");
         assert!(search.filter.whitelist.title.is_some());

@@ -101,6 +101,9 @@ pub struct GameFilter {
     pub blacklist: FieldFilter,
     pub exact_whitelist: FieldFilter,
     pub exact_blacklist: FieldFilter,
+    pub lower_than: SizeFilter,
+    pub higher_than: SizeFilter,
+    pub equal_to: SizeFilter,
     pub match_any: bool,
 }
 
@@ -121,7 +124,21 @@ pub struct FieldFilter {
     pub notes: Option<Vec<String>>,
     pub source: Option<Vec<String>>,
     pub original_description: Option<Vec<String>>,
-    pub language: Option<Vec<String>>
+    pub language: Option<Vec<String>>,
+    pub application_path: Option<Vec<String>>,
+    pub launch_command: Option<Vec<String>>,
+}
+
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct SizeFilter {
+    pub tags: Option<i64>,
+    pub platforms: Option<i64>,
+    pub date_added: Option<String>,
+    pub date_modified: Option<String>,
+    pub release_date: Option<String>,
+    pub game_data: Option<i64>,
+    pub add_apps: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +147,9 @@ struct ForcedGameFilter {
     pub blacklist: ForcedFieldFilter,
     pub exact_whitelist: ForcedFieldFilter,
     pub exact_blacklist: ForcedFieldFilter,
+    pub lower_than: SizeFilter,
+    pub higher_than: SizeFilter,
+    pub equal_to: SizeFilter,
 }
 
 #[derive(Debug, Clone)]
@@ -148,7 +168,9 @@ struct ForcedFieldFilter {
     pub notes: Vec<String>,
     pub source: Vec<String>,
     pub original_description: Vec<String>,
-    pub language: Vec<String>
+    pub language: Vec<String>,
+    pub application_path: Vec<String>,
+    pub launch_command: Vec<String>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -184,6 +206,9 @@ impl Default for GameFilter {
             blacklist: FieldFilter::default(),
             exact_whitelist: FieldFilter::default(),
             exact_blacklist: FieldFilter::default(),
+            lower_than: SizeFilter::default(),
+            higher_than: SizeFilter::default(),
+            equal_to: SizeFilter::default(),
             match_any: false,
         }
     }
@@ -217,7 +242,9 @@ impl Default for FieldFilter {
             notes: None,
             source: None,
             original_description: None,
-            language: None
+            language: None,
+            application_path: None,
+            launch_command: None,
         }
     }
 }
@@ -229,6 +256,9 @@ impl Default for ForcedGameFilter {
             blacklist: ForcedFieldFilter::default(),
             exact_whitelist: ForcedFieldFilter::default(),
             exact_blacklist: ForcedFieldFilter::default(),
+            lower_than: SizeFilter::default(),
+            higher_than: SizeFilter::default(),
+            equal_to: SizeFilter::default(),
         }
     }
 }
@@ -250,7 +280,23 @@ impl Default for ForcedFieldFilter {
             notes: vec![],
             source: vec![],
             original_description: vec![],
-            language: vec![]
+            language: vec![],
+            application_path: vec![],
+            launch_command: vec![],
+        }
+    }
+}
+
+impl Default for SizeFilter {
+    fn default() -> Self {
+        return SizeFilter {
+            tags: None,
+            platforms: None,
+            date_added: None,
+            date_modified: None,
+            release_date: None,
+            game_data: None,
+            add_apps: None
         }
     }
 }
@@ -303,6 +349,12 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.whitelist.language.len() > 0 {
             search.whitelist.language = Some(value.whitelist.language.clone());
         }
+        if value.whitelist.application_path.len() > 0 {
+            search.whitelist.application_path = Some(value.whitelist.application_path.clone());
+        }
+        if value.whitelist.launch_command.len() > 0 {
+            search.whitelist.launch_command = Some(value.whitelist.launch_command.clone());
+        }
 
         // Blacklist
 
@@ -348,6 +400,12 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.blacklist.language.len() > 0 {
             search.blacklist.language = Some(value.blacklist.language.clone());
         }
+        if value.blacklist.application_path.len() > 0 {
+            search.blacklist.application_path = Some(value.blacklist.application_path.clone());
+        }
+        if value.blacklist.launch_command.len() > 0 {
+            search.blacklist.launch_command = Some(value.blacklist.launch_command.clone());
+        }
 
         // Exact whitelist
 
@@ -376,22 +434,28 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_whitelist.platforms = Some(value.exact_whitelist.platforms.clone());
         }
         if value.exact_whitelist.play_mode.len() > 0 {
-            search.whitelist.play_mode = Some(value.exact_whitelist.play_mode.clone());
+            search.exact_whitelist.play_mode = Some(value.exact_whitelist.play_mode.clone());
         }
         if value.exact_whitelist.status.len() > 0 {
-            search.whitelist.status = Some(value.exact_whitelist.status.clone());
+            search.exact_whitelist.status = Some(value.exact_whitelist.status.clone());
         }
         if value.exact_whitelist.notes.len() > 0 {
-            search.whitelist.notes = Some(value.exact_whitelist.notes.clone());
+            search.exact_whitelist.notes = Some(value.exact_whitelist.notes.clone());
         }
         if value.exact_whitelist.source.len() > 0 {
-            search.whitelist.source = Some(value.exact_whitelist.source.clone());
+            search.exact_whitelist.source = Some(value.exact_whitelist.source.clone());
         }
         if value.exact_whitelist.original_description.len() > 0 {
-            search.whitelist.original_description = Some(value.exact_whitelist.original_description.clone());
+            search.exact_whitelist.original_description = Some(value.exact_whitelist.original_description.clone());
         }
         if value.exact_whitelist.language.len() > 0 {
-            search.whitelist.language = Some(value.exact_whitelist.language.clone());
+            search.exact_whitelist.language = Some(value.exact_whitelist.language.clone());
+        }
+        if value.exact_whitelist.application_path.len() > 0 {
+            search.exact_whitelist.application_path = Some(value.exact_whitelist.application_path.clone());
+        }
+        if value.exact_whitelist.launch_command.len() > 0 {
+            search.exact_whitelist.launch_command = Some(value.exact_whitelist.launch_command.clone());
         }
 
         // Exact blacklist
@@ -421,23 +485,33 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_blacklist.platforms = Some(value.exact_blacklist.platforms.clone());
         }
         if value.exact_blacklist.play_mode.len() > 0 {
-            search.blacklist.play_mode = Some(value.exact_blacklist.play_mode.clone());
+            search.exact_blacklist.play_mode = Some(value.exact_blacklist.play_mode.clone());
         }
         if value.exact_blacklist.status.len() > 0 {
-            search.blacklist.status = Some(value.exact_blacklist.status.clone());
+            search.exact_blacklist.status = Some(value.exact_blacklist.status.clone());
         }
         if value.exact_blacklist.notes.len() > 0 {
-            search.blacklist.notes = Some(value.exact_blacklist.notes.clone());
+            search.exact_blacklist.notes = Some(value.exact_blacklist.notes.clone());
         }
         if value.exact_blacklist.source.len() > 0 {
-            search.blacklist.source = Some(value.exact_blacklist.source.clone());
+            search.exact_blacklist.source = Some(value.exact_blacklist.source.clone());
         }
         if value.exact_blacklist.original_description.len() > 0 {
-            search.blacklist.original_description = Some(value.exact_blacklist.original_description.clone());
+            search.exact_blacklist.original_description = Some(value.exact_blacklist.original_description.clone());
         }
         if value.exact_blacklist.language.len() > 0 {
-            search.blacklist.language = Some(value.exact_blacklist.language.clone());
+            search.exact_blacklist.language = Some(value.exact_blacklist.language.clone());
         }
+        if value.exact_blacklist.application_path.len() > 0 {
+            search.exact_blacklist.application_path = Some(value.exact_blacklist.application_path.clone());
+        }
+        if value.exact_blacklist.launch_command.len() > 0 {
+            search.exact_blacklist.launch_command = Some(value.exact_blacklist.launch_command.clone());
+        }
+
+        search.higher_than = value.higher_than.clone();
+        search.lower_than = value.lower_than.clone();
+        search.equal_to = value.equal_to.clone();
 
         search
     }
@@ -517,7 +591,7 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut keyset = vec![];
-    debug_println!("{}", format_query(&query, params.clone()));
+    println!("{}", format_query(&query, params.clone()));
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
         Ok(PageTuple{
@@ -683,7 +757,6 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
     // Build the inner WHERE clause
     let mut params: Vec<StringOrVec> = vec![];
     let where_clause = build_filter_query(&search.filter, &mut params);
-    
 
     // Add tag filtering
     if let Some(tags) = &search.with_tag_filter {
@@ -931,6 +1004,47 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
     add_multi_clause(vec!["title", "alternateTitles"], &filter.blacklist.title, false, true);
     add_multi_clause(vec!["title", "alternateTitles", "developer", "publisher", "series"], &filter.blacklist.generic, false, true);
 
+    let mut add_joint_game_data_clause = |field_name: &str, game_field_name: &str, filter: &Option<Vec<String>>, exact: bool, blacklist: bool| {
+        if let Some(value_list) = filter {
+            let comparator = match (blacklist, exact) {
+                (true, true) => "!=",
+                (true, false) => "NOT LIKE",
+                (false, true) => "=",
+                (false, false) => "LIKE",
+            };
+
+            for value in value_list {
+                let mut value_clauses = vec![];
+                value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
+                if exact {
+                    params.push(StringOrVec::Single(value.clone()));
+                } else {
+                    let p = format!("%{}%", value);
+                    params.push(StringOrVec::Single(p));
+                }
+                
+                value_clauses.push(format!("game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)", field_name, comparator));
+                if exact {
+                    params.push(StringOrVec::Single(value.clone()));
+                } else {
+                    let p = format!("%{}%", value);
+                    params.push(StringOrVec::Single(p));
+                }
+                where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
+            }
+        }
+    };
+
+    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.whitelist.application_path, false, false);
+    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.blacklist.application_path, false, true);
+    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.exact_whitelist.application_path, true, false);
+    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.exact_blacklist.application_path, true, true);
+
+    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.whitelist.launch_command, false, false);
+    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.blacklist.launch_command, false, true);
+    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.exact_whitelist.launch_command, true, false);
+    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.exact_blacklist.launch_command, true, true);
+
     if filter.match_any {
         return where_clauses.join(" OR ");
     } else {
@@ -1066,6 +1180,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
     let mut capturing_quotes = false;
     let mut working_key = String::new();
     let mut working_value = String::new();
+    let mut working_key_char: Option<KeyChar> = None;
     let mut negative = false;
     let mut exact = false;
 
@@ -1154,14 +1269,18 @@ pub fn parse_user_input(input: &str) -> GameSearch {
 
         if working_value == "" {
             // No working input yet, check for key
-            let token_parts = token.split(":").collect::<Vec<&str>>();
+            working_key_char = earliest_key_char(token);
 
-            if token_parts.len() > 1 {
-                // Has a key
-                working_key = token_parts[0].to_owned();
-                token = token_parts[1];
-            } else {
-                token = token_parts[0];
+            if let Some(kc) = working_key_char.clone() {
+                let s: String = kc.into();
+                let token_parts = token.split(&s).collect::<Vec<&str>>();
+                if token_parts.len() > 1 {
+                    // Has a key
+                    working_key = token_parts[0].to_owned();
+                    token = token_parts[1];
+                } else {
+                    token = token_parts[0];
+                }
             }
 
             // Single value, must be value
@@ -1194,32 +1313,103 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 (false, true) => filter.exact_whitelist.clone(),
             };
             let value = working_value.clone();
+            let mut processed = false;
 
-            // Has a complete value, add to filter
-            match working_key.to_lowercase().as_str() {
-                "id" => list.id.push(value),
-                "library" => list.library.push(value),
-                "title" => list.title.push(value),
-                "dev" | "developer" => list.developer.push(value),
-                "pub" | "publisher" => list.publisher.push(value),
-                "series" => list.series.push(value),
-                "tag" => list.tags.push(value),
-                "platform" => list.platforms.push(value),
-                "playmode" => list.play_mode.push(value),
-                "status" => list.status.push(value),
-                "notes" => list.notes.push(value),
-                "source" => list.source.push(value),
-                "desc" |"originaldescription" => list.original_description.push(value),
-                "lang" | "language" => list.language.push(value),
-                _ => list.generic.push(value),
+            if let Some(kc) = &working_key_char {
+                processed = true;
+                match kc {
+                    KeyChar::MATCHES => {
+                        processed = false;
+                    },
+                    KeyChar::LOWER => {
+                        let value = coerce_to_i64(&working_value);
+                        match working_key.to_lowercase().as_str() {
+                            "tags" => filter.lower_than.tags = Some(value),
+                            "platforms" => filter.lower_than.platforms = Some(value),
+                            "dateadded" => filter.lower_than.date_added = Some(working_value.clone()),
+                            "datemodified" => filter.lower_than.date_modified = Some(working_value.clone()),
+                            "releasedate" => filter.lower_than.release_date = Some(working_value.clone()),
+                            "gamedata" => filter.lower_than.game_data = Some(value),
+                            "addapps" => filter.lower_than.add_apps = Some(value), 
+                            _ => {
+                                processed = false;
+                            }
+                        }
+                    },
+                    KeyChar::HIGHER => {
+                        let value = coerce_to_i64(&working_value);
+                        match working_key.to_lowercase().as_str() {
+                            "tags" => filter.higher_than.tags = Some(value),
+                            "platforms" => filter.higher_than.platforms = Some(value),
+                            "dateadded" => filter.higher_than.date_added = Some(working_value.clone()),
+                            "datemodified" => filter.higher_than.date_modified = Some(working_value.clone()),
+                            "releasedate" => filter.higher_than.release_date = Some(working_value.clone()),
+                            "gamedata" => filter.higher_than.game_data = Some(value),
+                            "addapps" => filter.higher_than.add_apps = Some(value), 
+                            _ => {
+                                processed = false;
+                            }
+                        }
+                    },
+                    KeyChar::EQUALS => {
+                        let value = coerce_to_i64(&working_value);
+                        match working_key.to_lowercase().as_str() {
+                            "tags" => filter.equal_to.tags = Some(value),
+                            "platforms" => filter.equal_to.platforms = Some(value),
+                            "dateadded" => filter.equal_to.date_added = Some(working_value.clone()),
+                            "datemodified" => filter.equal_to.date_modified = Some(working_value.clone()),
+                            "releasedate" => filter.equal_to.release_date = Some(working_value.clone()),
+                            "gamedata" => filter.equal_to.game_data = Some(value),
+                            "addapps" => filter.equal_to.add_apps = Some(value), 
+                            _ => {
+                                processed = false;
+                            }
+                        }
+                    },
+                }
             }
 
-            match (negative, exact) {
-                (true, false) => filter.blacklist = list,
-                (false, false) => filter.whitelist = list,
-                (true, true) => filter.exact_blacklist = list,
-                (false, true) => filter.exact_whitelist = list,
+            // Was not caught by the special matchers, assume it either fits a key or a generic
+            if !processed {
+                // Has a complete value, add to filter
+                match working_key.to_lowercase().as_str() {
+                    "id" => list.id.push(value),
+                    "lib" | "library" => list.library.push(value),
+                    "title" => list.title.push(value),
+                    "dev" | "developer" => list.developer.push(value),
+                    "pub" | "publisher" => list.publisher.push(value),
+                    "series" => list.series.push(value),
+                    "tag" => list.tags.push(value),
+                    "plat" | "platform" => list.platforms.push(value),
+                    "mode" | "playmode" => list.play_mode.push(value),
+                    "status" => list.status.push(value),
+                    "note" | "notes" => list.notes.push(value),
+                    "src" | "source" => list.source.push(value),
+                    "desc" | "description" | "originaldescription" => list.original_description.push(value),
+                    "lang" | "language" => list.language.push(value),
+                    "path" | "app" | "applicationpath" => list.application_path.push(value),
+                    "lc" | "launchcommand" => list.launch_command.push(value),
+                    _ => {
+                        match &working_key_char {
+                            Some(kc) => {
+                                let ks: String = kc.clone().into();
+                                let full_value = working_key.clone() + &ks + &value;
+                                list.generic.push(full_value);
+                            },
+                            None => list.generic.push(value)
+                        }
+                    },
+                }
+
+                match (negative, exact) {
+                    (true, false) => filter.blacklist = list,
+                    (false, false) => filter.whitelist = list,
+                    (true, true) => filter.exact_blacklist = list,
+                    (false, true) => filter.exact_whitelist = list,
+                }
             }
+
+            
 
             negative = false;
             exact = false;
@@ -1231,4 +1421,71 @@ pub fn parse_user_input(input: &str) -> GameSearch {
     search.filter = (&filter).into();
 
     search
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum KeyChar {
+    MATCHES,
+    LOWER,
+    HIGHER,
+    EQUALS,
+}
+
+impl Into<String> for KeyChar {
+    fn into(self) -> String {
+        match self {
+            KeyChar::MATCHES => ":".to_owned(),
+            KeyChar::LOWER => "<".to_owned(),
+            KeyChar::HIGHER => ">".to_owned(),
+            KeyChar::EQUALS => "=".to_owned(),
+        }
+    }
+}
+
+const KEY_CHARS: [&str; 4] = [":", "<", ">", "="];
+
+fn earliest_key_char(s: &str) -> Option<KeyChar> {
+    let mut earliest_pos = None;
+    let mut earliest_key_char = None;
+
+    for key_char in KEY_CHARS {
+        if let Some(pos) = s.find(key_char) {
+            if earliest_pos.is_none() || pos < earliest_pos.unwrap() {
+                earliest_pos = Some(pos);
+                earliest_key_char = Some(key_char);
+            }
+        }
+    }
+
+    match earliest_key_char {
+        Some(ekc) => {
+            match ekc {
+                ":" => {
+                    Some(KeyChar::MATCHES)
+                }
+                "<" => {
+                    Some(KeyChar::LOWER)
+                }
+                ">" => {
+                    Some(KeyChar::HIGHER)
+                }
+                "=" => {
+                    Some(KeyChar::EQUALS)
+                },
+                _ => {
+                    None
+                }
+            }
+        },
+        None => {
+            None
+        }
+    }
+}
+
+fn coerce_to_i64(input: &str) -> i64 {
+    match input.trim().parse::<i64>() {
+        Ok(num) => num,
+        _ => 0
+    }
 }
