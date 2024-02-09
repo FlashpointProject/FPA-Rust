@@ -7,9 +7,10 @@ use crate::{debug_println, game::get_game_add_apps};
 use super::{Game, get_game_platforms, get_game_tags, get_game_data};
 
 #[derive(Debug, Clone)]
-pub enum StringOrVec {
-    Single(String),
-    Multiple(Vec<String>),
+pub enum SearchParam {
+    String(String),
+    StringVec(Vec<String>),
+    Integer64(i64),
 }
 
 #[derive(Debug, Clone)]
@@ -18,25 +19,29 @@ pub struct TagFilterInfo {
     pub dirty: bool,
 }
 
-impl ToSql for StringOrVec {
+impl ToSql for SearchParam {
     fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
         match self {
-            StringOrVec::Single(s) => {
+            SearchParam::String(s) => {
                 Ok(ToSqlOutput::from(s.as_str()))
             },
-            StringOrVec::Multiple(m) => {
-                let v = Rc::new(m.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
+            SearchParam::StringVec(m) => {
+                let v: Rc<Vec<Value>> = Rc::new(m.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
                 Ok(ToSqlOutput::Array(v))
-            }
+            },
+            SearchParam::Integer64(i) => {
+                Ok(ToSqlOutput::from(i.clone()))
+            },
         }
     }
 }
 
-impl Display for StringOrVec {
+impl Display for SearchParam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StringOrVec::Single(s) => f.write_str(s),
-            StringOrVec::Multiple(m) => f.write_str(format!("'{}'", m.join("', '")).as_str())
+            SearchParam::String(s) => f.write_str(s),
+            SearchParam::StringVec(m) => f.write_str(format!("'{}'", m.join("', '")).as_str()),
+            SearchParam::Integer64(i) => f.write_str(i.to_string().as_str()),
         }
     }
 }
@@ -586,7 +591,7 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
     
     // Add the weirdness
     query = format!("SELECT game.id, {}, game.title FROM ({}) game WHERE rn % ? = 0", order_column, query);
-    params.push(StringOrVec::Single(page_size.to_string()));
+    params.push(SearchParam::String(page_size.to_string()));
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
@@ -741,7 +746,7 @@ pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result
 }
 
 
-fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<StringOrVec>) {
+fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<SearchParam>) {
     let mut query = String::from(selection);
 
     // Ordering
@@ -755,7 +760,7 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
     };
 
     // Build the inner WHERE clause
-    let mut params: Vec<StringOrVec> = vec![];
+    let mut params: Vec<SearchParam> = vec![];
     let where_clause = build_filter_query(&search.filter, &mut params);
 
     // Add tag filtering
@@ -777,9 +782,9 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
         };
         query.push_str(&offset_clause);
         // Insert in reverse order
-        params.insert(0, StringOrVec::Single(offset.game_id.clone()));
-        params.insert(0, StringOrVec::Single(offset.title.clone()));
-        params.insert(0, StringOrVec::Single(offset.value.clone()));
+        params.insert(0, SearchParam::String(offset.game_id.clone()));
+        params.insert(0, SearchParam::String(offset.title.clone()));
+        params.insert(0, SearchParam::String(offset.value.clone()));
     }
 
     // Combine all where clauses
@@ -811,7 +816,7 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Stri
     (query, params)
 }
 
-fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> String {
+fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> String {
     let mut where_clauses = Vec::new();
 
     if filter.subfilters.len() > 0 {
@@ -835,10 +840,10 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
             for value in value_list {
                 where_clauses.push(format!("game.{} {} ?", field_name, comparator));
                 if exact {
-                    params.push(StringOrVec::Single(value.clone()));
+                    params.push(SearchParam::String(value.clone()));
                 } else {
                     let p = format!("%{}%", value);
-                    params.push(StringOrVec::Single(p));
+                    params.push(SearchParam::String(p));
                 }
             }
         }
@@ -906,7 +911,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
             // Inexact OR / Inexact AND / Exact AND
             if exact && filter.match_any {
                 // Must be an exact OR
-                params.push(StringOrVec::Multiple(value_list.clone()));
+                params.push(SearchParam::StringVec(value_list.clone()));
 
                 let tag_query = format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                 SELECT {}Id FROM {}_alias WHERE name IN rarray(?)))", comparator, tag_name, tag_name, tag_name, tag_name, tag_name);
@@ -919,13 +924,13 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
                 if exact {
                     for value in value_list {
                         inner_tag_queries.push("name = ?");
-                        params.push(StringOrVec::Single(value.clone()));
+                        params.push(SearchParam::String(value.clone()));
                     }
                 } else {
                     for value in value_list {
                         inner_tag_queries.push("name LIKE ?");
                         let p = format!("%{}%", value);
-                        params.push(StringOrVec::Single(p));
+                        params.push(SearchParam::String(p));
                     }
                 }
 
@@ -985,10 +990,10 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
                 for field_name in field_names.clone() {
                     value_clauses.push(format!("game.{} {} ?", field_name, comparator));
                     if exact {
-                        params.push(StringOrVec::Single(value.clone()));
+                        params.push(SearchParam::String(value.clone()));
                     } else {
                         let p = format!("%{}%", value);
-                        params.push(StringOrVec::Single(p));
+                        params.push(SearchParam::String(p));
                     }
                 }
                 where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
@@ -1017,18 +1022,18 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
                 let mut value_clauses = vec![];
                 value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
                 if exact {
-                    params.push(StringOrVec::Single(value.clone()));
+                    params.push(SearchParam::String(value.clone()));
                 } else {
                     let p = format!("%{}%", value);
-                    params.push(StringOrVec::Single(p));
+                    params.push(SearchParam::String(p));
                 }
                 
                 value_clauses.push(format!("game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)", field_name, comparator));
                 if exact {
-                    params.push(StringOrVec::Single(value.clone()));
+                    params.push(SearchParam::String(value.clone()));
                 } else {
                     let p = format!("%{}%", value);
-                    params.push(StringOrVec::Single(p));
+                    params.push(SearchParam::String(p));
                 }
                 where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
             }
@@ -1045,6 +1050,129 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
     add_joint_game_data_clause("launchCommand", "launchCommand", &filter.exact_whitelist.launch_command, true, false);
     add_joint_game_data_clause("launchCommand", "launchCommand", &filter.exact_blacklist.launch_command, true, true);
 
+    // Tag and Platform comparisons
+    let mut add_compare_tag_clause = |field_name: &str, comparator: KeyChar, filter: &Option<i64>| {
+        if let Some(f) = filter {
+            if *f == 0 {
+                match comparator {
+                    KeyChar::EQUALS => {
+                        // Select games with exactly 0 additional apps
+                        where_clauses.push(format!("game.id NOT IN (SELECT gameId FROM game_{}s_{})", field_name, field_name));
+                    },
+                    KeyChar::LOWER => (),
+                    KeyChar::HIGHER => {
+                        // Select games with 1 or more additional apps
+                        where_clauses.push(format!("game.id IN (SELECT gameId FROM game_{}s_{})", field_name, field_name));
+                    },
+                    KeyChar::MATCHES => (),
+                }
+            } else {
+                match comparator {
+                    KeyChar::MATCHES => (),
+                    KeyChar::LOWER => {
+                        where_clauses.push(format!("game.id NOT IN (SELECT gameId FROM game_{}s_{} GROUP BY gameId HAVING COUNT(gameId) >= ?)", field_name, field_name));
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                    KeyChar::HIGHER => {
+                        where_clauses.push(format!("game.id IN (SELECT gameId FROM game_{}s_{} GROUP BY gameId HAVING COUNT(gameId) > ?)", field_name, field_name));
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                    KeyChar::EQUALS => {
+                        where_clauses.push(format!("game.id IN (SELECT gameId FROM game_{}s_{} GROUP BY gameId HAVING COUNT(gameId) = ?)", field_name, field_name));
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                }
+            }
+        }
+    };
+
+    add_compare_tag_clause("tag", KeyChar::LOWER, &filter.lower_than.tags);
+    add_compare_tag_clause("tag", KeyChar::HIGHER, &filter.higher_than.tags);
+    add_compare_tag_clause("tag", KeyChar::EQUALS, &filter.equal_to.tags);
+
+    add_compare_tag_clause("platform", KeyChar::LOWER, &filter.lower_than.platforms);
+    add_compare_tag_clause("platform", KeyChar::HIGHER, &filter.higher_than.platforms);
+    add_compare_tag_clause("platform", KeyChar::EQUALS, &filter.equal_to.platforms);
+
+    // Add app comparisons
+    let mut add_compare_add_app_clause = |comparator: KeyChar, filter: &Option<i64>| {
+        if let Some(f) = filter {
+            if *f == 0 {
+                match comparator {
+                    KeyChar::EQUALS => {
+                        // Select games with exactly 0 additional apps
+                        where_clauses.push("game.id NOT IN (SELECT parentGameId FROM additional_app)".to_string());
+                    },
+                    KeyChar::LOWER => (),
+                    KeyChar::HIGHER => {
+                        // Select games with 1 or more additional apps
+                        where_clauses.push("game.id IN (SELECT parentGameId FROM additional_app)".to_string());
+                    },
+                    KeyChar::MATCHES => (),
+                }
+            } else {
+                match comparator {
+                    KeyChar::MATCHES => (),
+                    KeyChar::LOWER => {
+                        where_clauses.push("game.id NOT IN (SELECT parentGameId FROM additional_app GROUP BY parentGameId HAVING COUNT(parentGameId) >= ?)".to_string());
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                    KeyChar::HIGHER => {
+                        where_clauses.push("game.id IN (SELECT parentGameId FROM additional_app GROUP BY parentGameId HAVING COUNT(parentGameId) > ?)".to_string());
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                    KeyChar::EQUALS => {
+                        where_clauses.push("game.id IN (SELECT parentGameId FROM additional_app GROUP BY parentGameId HAVING COUNT(parentGameId) = ?)".to_string());
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                }
+            }
+        }
+    };
+
+    add_compare_add_app_clause(KeyChar::LOWER, &filter.lower_than.add_apps);
+    add_compare_add_app_clause(KeyChar::HIGHER, &filter.higher_than.add_apps);
+    add_compare_add_app_clause(KeyChar::EQUALS, &filter.equal_to.add_apps);
+
+    let mut add_compare_game_data_clause = |comparator: KeyChar, filter: &Option<i64>| {
+        if let Some(f) = filter {
+            if *f <= 0 {
+                match comparator {
+                    KeyChar::EQUALS => {
+                        // Select games with exactly 0 additional apps
+                        where_clauses.push("game.id NOT IN (SELECT gameId FROM game_data)".to_string());
+                    },
+                    KeyChar::LOWER => (),
+                    KeyChar::HIGHER => {
+                        // Select games with 1 or more additional apps
+                        where_clauses.push("game.id IN (SELECT gameId FROM game_data)".to_string());
+                    },
+                    KeyChar::MATCHES => (),
+                }
+            } else {
+                match comparator {
+                    KeyChar::MATCHES => (),
+                    KeyChar::LOWER => {
+                        where_clauses.push("game.id NOT IN (SELECT gameId FROM game_data GROUP BY gameId HAVING COUNT(gameId) >= ?)".to_string());
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                    KeyChar::HIGHER => {
+                        where_clauses.push("game.id IN (SELECT gameId FROM game_data GROUP BY gameId HAVING COUNT(gameId) > ?)".to_string());
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                    KeyChar::EQUALS => {
+                        where_clauses.push("game.id IN (SELECT gameId FROM game_data GROUP BY gameId HAVING COUNT(gameId) = ?)".to_string());
+                        params.push(SearchParam::Integer64(f.clone()));
+                    },
+                }
+            }
+        }
+    };
+
+    add_compare_game_data_clause(KeyChar::LOWER, &filter.lower_than.game_data);
+    add_compare_game_data_clause(KeyChar::HIGHER, &filter.higher_than.game_data);
+    add_compare_game_data_clause(KeyChar::EQUALS, &filter.equal_to.game_data);
+
     if filter.match_any {
         return where_clauses.join(" OR ");
     } else {
@@ -1052,7 +1180,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<StringOrVec>) -> Str
     }
 }
 
-fn format_query(query: &str, substitutions: Vec<StringOrVec>) -> String {
+fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
     let mut formatted_query = String::new();
     let mut trim_mode = false;
     let mut indent = 0;
