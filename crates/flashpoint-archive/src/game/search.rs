@@ -1173,6 +1173,40 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     add_compare_game_data_clause(KeyChar::HIGHER, &filter.higher_than.game_data);
     add_compare_game_data_clause(KeyChar::EQUALS, &filter.equal_to.game_data);
 
+    let mut add_compare_dates_clause = |date_field: &str, comparator: KeyChar, filter: &Option<String>| {
+        if let Some(f) = filter {
+            match comparator {
+                KeyChar::MATCHES => (),
+                KeyChar::LOWER => {
+                    where_clauses.push(format!("date(game.{}) < ?", date_field));
+                    params.push(SearchParam::String(f.clone()));
+                },
+                KeyChar::HIGHER => {
+                    // e.g "2021-01" will generate >= "2021-01" and < "2021-02"
+                    where_clauses.push(format!("date(game.{}) >= ?", date_field));
+                    params.push(SearchParam::String(f.clone()));
+                },
+                KeyChar::EQUALS => {
+                    where_clauses.push(format!("date(game.{}) LIKE ?", date_field));
+                    let p = f.clone() + "%";
+                    params.push(SearchParam::String(p));
+                },
+            }
+        }
+    };
+
+    add_compare_dates_clause("dateAdded", KeyChar::LOWER, &filter.lower_than.date_added);
+    add_compare_dates_clause("dateAdded", KeyChar::HIGHER, &filter.higher_than.date_added);
+    add_compare_dates_clause("dateAdded", KeyChar::EQUALS, &filter.equal_to.date_added);
+
+    add_compare_dates_clause("dateModified", KeyChar::LOWER, &filter.lower_than.date_modified);
+    add_compare_dates_clause("dateModified", KeyChar::HIGHER, &filter.higher_than.date_modified);
+    add_compare_dates_clause("dateModified", KeyChar::EQUALS, &filter.equal_to.date_modified);
+
+    add_compare_dates_clause("releaseDate", KeyChar::LOWER, &filter.lower_than.release_date);
+    add_compare_dates_clause("releaseDate", KeyChar::HIGHER, &filter.higher_than.release_date);
+    add_compare_dates_clause("releaseDate", KeyChar::EQUALS, &filter.equal_to.release_date);
+
     if filter.match_any {
         return where_clauses.join(" OR ");
     } else {
