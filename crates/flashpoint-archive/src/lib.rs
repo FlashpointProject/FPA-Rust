@@ -63,18 +63,21 @@ impl FlashpointArchive {
 
     pub async fn search_games(&self, search: &GameSearch) -> Result<Vec<game::Game>> {
         with_connection!(&self.pool, |conn| {
+            println!("Getting search page");
             game::search::search(conn, search).context(error::SqliteSnafu)
         })
     }
 
     pub async fn search_games_index(&self, search: &mut GameSearch) -> Result<Vec<PageTuple>> {
         with_connection!(&self.pool, |conn| {
+            println!("Getting search index");
             game::search::search_index(conn, search).context(error::SqliteSnafu)
         })
     }
 
     pub async fn search_games_total(&self, search: &GameSearch) -> Result<i64> {
         with_connection!(&self.pool, |conn| {
+            println!("Getting search total");
             game::search::search_count(conn, search).context(error::SqliteSnafu)
         })
     }

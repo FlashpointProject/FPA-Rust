@@ -20,7 +20,8 @@ pub fn count(conn: &Connection) -> Result<i64> {
 pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, pa.name, p.description, p.dateModified FROM platform_alias pa
-        INNER JOIN platform p ON p.id = pa.platformId")?;
+        INNER JOIN platform p ON p.id = pa.platformId
+        WHERE pa.id == p.primaryAliasId")?;
 
     let platform_iter = stmt.query_map((), |row| {
         Ok(Tag {

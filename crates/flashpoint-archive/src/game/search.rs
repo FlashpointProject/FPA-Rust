@@ -1,10 +1,14 @@
 use std::{fmt::Display, rc::Rc};
 
-use rusqlite::{Connection, Result, OptionalExtension, ToSql, types::{ToSqlOutput, Value}, params};
+use rusqlite::{
+    params,
+    types::{ToSqlOutput, Value},
+    Connection, OptionalExtension, Result, ToSql,
+};
 
 use crate::{debug_println, game::get_game_add_apps};
 
-use super::{Game, get_game_platforms, get_game_tags, get_game_data};
+use super::{get_game_data, get_game_platforms, get_game_tags, Game};
 
 #[derive(Debug, Clone)]
 pub enum SearchParam {
@@ -22,16 +26,16 @@ pub struct TagFilterInfo {
 impl ToSql for SearchParam {
     fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
         match self {
-            SearchParam::String(s) => {
-                Ok(ToSqlOutput::from(s.as_str()))
-            },
+            SearchParam::String(s) => Ok(ToSqlOutput::from(s.as_str())),
             SearchParam::StringVec(m) => {
-                let v: Rc<Vec<Value>> = Rc::new(m.iter().map(|v| Value::from(v.clone())).collect::<Vec<Value>>());
+                let v: Rc<Vec<Value>> = Rc::new(
+                    m.iter()
+                        .map(|v| Value::from(v.clone()))
+                        .collect::<Vec<Value>>(),
+                );
                 Ok(ToSqlOutput::Array(v))
-            },
-            SearchParam::Integer64(i) => {
-                Ok(ToSqlOutput::from(i.clone()))
-            },
+            }
+            SearchParam::Integer64(i) => Ok(ToSqlOutput::from(i.clone())),
         }
     }
 }
@@ -51,6 +55,7 @@ impl Display for SearchParam {
 pub struct GameSearch {
     pub filter: GameFilter,
     pub load_relations: GameSearchRelations,
+    pub custom_id_order: Option<Vec<String>>,
     pub order: GameSearchOrder,
     pub offset: Option<GameSearchOffset>,
     pub limit: i64,
@@ -79,6 +84,7 @@ pub struct GameSearchOrder {
 pub enum GameSearchSortable {
     TITLE,
     RANDOM,
+    CUSTOM,
 }
 
 #[cfg_attr(feature = "napi", napi)]
@@ -195,6 +201,7 @@ impl Default for GameSearch {
                 column: GameSearchSortable::TITLE,
                 direction: GameSearchDirection::ASC,
             },
+            custom_id_order: None,
             offset: None,
             limit: 1000,
             slim: false,
@@ -301,8 +308,8 @@ impl Default for SizeFilter {
             date_modified: None,
             release_date: None,
             game_data: None,
-            add_apps: None
-        }
+            add_apps: None,
+        };
     }
 }
 
@@ -349,7 +356,8 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.whitelist.source = Some(value.whitelist.source.clone());
         }
         if value.whitelist.original_description.len() > 0 {
-            search.whitelist.original_description = Some(value.whitelist.original_description.clone());
+            search.whitelist.original_description =
+                Some(value.whitelist.original_description.clone());
         }
         if value.whitelist.language.len() > 0 {
             search.whitelist.language = Some(value.whitelist.language.clone());
@@ -400,7 +408,8 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.blacklist.source = Some(value.blacklist.source.clone());
         }
         if value.blacklist.original_description.len() > 0 {
-            search.blacklist.original_description = Some(value.blacklist.original_description.clone());
+            search.blacklist.original_description =
+                Some(value.blacklist.original_description.clone());
         }
         if value.blacklist.language.len() > 0 {
             search.blacklist.language = Some(value.blacklist.language.clone());
@@ -451,16 +460,19 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_whitelist.source = Some(value.exact_whitelist.source.clone());
         }
         if value.exact_whitelist.original_description.len() > 0 {
-            search.exact_whitelist.original_description = Some(value.exact_whitelist.original_description.clone());
+            search.exact_whitelist.original_description =
+                Some(value.exact_whitelist.original_description.clone());
         }
         if value.exact_whitelist.language.len() > 0 {
             search.exact_whitelist.language = Some(value.exact_whitelist.language.clone());
         }
         if value.exact_whitelist.application_path.len() > 0 {
-            search.exact_whitelist.application_path = Some(value.exact_whitelist.application_path.clone());
+            search.exact_whitelist.application_path =
+                Some(value.exact_whitelist.application_path.clone());
         }
         if value.exact_whitelist.launch_command.len() > 0 {
-            search.exact_whitelist.launch_command = Some(value.exact_whitelist.launch_command.clone());
+            search.exact_whitelist.launch_command =
+                Some(value.exact_whitelist.launch_command.clone());
         }
 
         // Exact blacklist
@@ -502,16 +514,19 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_blacklist.source = Some(value.exact_blacklist.source.clone());
         }
         if value.exact_blacklist.original_description.len() > 0 {
-            search.exact_blacklist.original_description = Some(value.exact_blacklist.original_description.clone());
+            search.exact_blacklist.original_description =
+                Some(value.exact_blacklist.original_description.clone());
         }
         if value.exact_blacklist.language.len() > 0 {
             search.exact_blacklist.language = Some(value.exact_blacklist.language.clone());
         }
         if value.exact_blacklist.application_path.len() > 0 {
-            search.exact_blacklist.application_path = Some(value.exact_blacklist.application_path.clone());
+            search.exact_blacklist.application_path =
+                Some(value.exact_blacklist.application_path.clone());
         }
         if value.exact_blacklist.launch_command.len() > 0 {
-            search.exact_blacklist.launch_command = Some(value.exact_blacklist.launch_command.clone());
+            search.exact_blacklist.launch_command =
+                Some(value.exact_blacklist.launch_command.clone());
         }
 
         search.higher_than = value.higher_than.clone();
@@ -548,14 +563,16 @@ macro_rules! exact_blacklist_clause {
 
 const COUNT_QUERY: &str = "SELECT COUNT(*) FROM game";
 
-const RESULTS_QUERY: &str = "SELECT game.id, title, alternateTitles, series, developer, publisher, platformsStr, \
+const RESULTS_QUERY: &str =
+    "SELECT game.id, title, alternateTitles, series, developer, publisher, platformsStr, \
 platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
 tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
 originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
 activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter \
 FROM game";
 
-const SLIM_RESULTS_QUERY: &str = "SELECT game.id, title, series, developer, publisher, platformsStr, 
+const SLIM_RESULTS_QUERY: &str =
+    "SELECT game.id, title, series, developer, publisher, platformsStr, 
 platformName, tagsStr, library 
 FROM game";
 
@@ -576,32 +593,59 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
         }
     }
 
+    if search.order.column == GameSearchSortable::CUSTOM {
+        if let Some(custom_id_order) = &search.custom_id_order {
+            if custom_id_order.len() > 0 {
+                new_custom_id_order(conn, custom_id_order.clone())?;
+            }
+        }
+    }
+
     let order_column = match search.order.column {
         GameSearchSortable::TITLE => "game.title",
+        GameSearchSortable::CUSTOM => "RowNum",
         _ => "unknown",
     };
     let order_direction = match search.order.direction {
         GameSearchDirection::ASC => "ASC",
-        GameSearchDirection::DESC => "DESC"
+        GameSearchDirection::DESC => "DESC",
     };
     let page_size = search.limit;
     search.limit = 9999999999;
-    let selection = format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction);
+    let selection = match search.order.column {
+        GameSearchSortable::CUSTOM => "
+        WITH OrderedIDs AS (
+            SELECT
+            id,
+            ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RowNum
+            FROM custom_id_order
+        ) 
+        SELECT game.id, OrderedIDs.RowNum, game.title, ROW_NUMBER() OVER (ORDER BY OrderedIDs.RowNum, game.title, game.id) AS rn FROM game".to_owned(),
+        _ => format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction)
+    };
     let (mut query, mut params) = build_search_query(search, &selection);
-    
+
     // Add the weirdness
-    query = format!("SELECT game.id, {}, game.title FROM ({}) game WHERE rn % ? = 0", order_column, query);
+    query = format!(
+        "SELECT game.id, {}, game.title FROM ({}) game WHERE rn % ? = 0",
+        order_column, query
+    );
     params.push(SearchParam::String(page_size.to_string()));
 
-    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut keyset = vec![];
     println!("{}", format_query(&query, params.clone()));
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
-        Ok(PageTuple{
+        let order_val = match search.order.column {
+            GameSearchSortable::CUSTOM => row.get::<_, i64>(1)?.to_string(),
+            _ => row.get::<_, String>(1)?
+        };
+        Ok(PageTuple {
             id: row.get(0)?,
-            order_val: row.get(1)?,
+            order_val,
             title: row.get(2)?,
         })
     })?;
@@ -618,17 +662,32 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
     let mut countable_search = search.clone();
     // Remove result limit for COUNT queries
     countable_search.limit = 99999999999;
-    let (query, params) = build_search_query(search, COUNT_QUERY);
+    let mut selection = COUNT_QUERY.to_owned();
+    if search.order.column == GameSearchSortable::CUSTOM {
+        selection = "WITH OrderedIDs AS (
+            SELECT
+            id,
+            ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RowNum
+            FROM custom_id_order
+        ) "
+        .to_owned()
+            + &selection;
+    }
+    let (query, params) = build_search_query(search, &selection);
+    println!("{}", format_query(&query, params.clone()));
 
-    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    let count_result = conn.query_row(&query, params_as_refs.as_slice(), |row| {
-        row.get::<_, i64>(0)
-    }).optional()?;
+    let count_result = conn
+        .query_row(&query, params_as_refs.as_slice(), |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()?;
 
     match count_result {
         Some(count) => Ok(count),
-        None => Ok(0)
+        None => Ok(0),
     }
 }
 
@@ -637,14 +696,27 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
-    let selection = match search.slim {
-        true => SLIM_RESULTS_QUERY,
-        false => RESULTS_QUERY
+    let mut selection = match search.slim {
+        true => SLIM_RESULTS_QUERY.to_owned(),
+        false => RESULTS_QUERY.to_owned(),
     };
-    let (query, params) = build_search_query(search, selection);
+    if search.order.column == GameSearchSortable::CUSTOM {
+        selection = "WITH OrderedIDs AS (
+            SELECT
+            id,
+            ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RowNum
+            FROM custom_id_order
+        ) "
+        .to_owned()
+            + &selection;
+    }
+
+    let (query, params) = build_search_query(search, &selection);
+    println!("{}", format_query(&query, params.clone()));
 
     // Convert the parameters array to something rusqlite understands
-    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut games = Vec::new();
 
@@ -745,18 +817,22 @@ pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result
     search(conn, &s)
 }
 
-
 fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<SearchParam>) {
     let mut query = String::from(selection);
+
+    if search.order.column == GameSearchSortable::CUSTOM {
+        query.push_str(" INNER JOIN OrderedIDs ON game.id = OrderedIDs.id");
+    }
 
     // Ordering
     let order_column = match search.order.column {
         GameSearchSortable::TITLE => "game.title",
-        _ => "unknown"
+        GameSearchSortable::CUSTOM => "OrderedIDs.RowNum",
+        _ => "unknown",
     };
     let order_direction = match search.order.direction {
         GameSearchDirection::ASC => "ASC",
-        GameSearchDirection::DESC => "DESC"
+        GameSearchDirection::DESC => "DESC",
     };
 
     // Build the inner WHERE clause
@@ -772,19 +848,29 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
 
     // Add offset
     if let Some(offset) = search.offset.clone() {
-        let offset_clause = match search.order.direction {
-            GameSearchDirection::ASC => {
-                format!(" WHERE ({}, game.title, game.id) > (?, ?, ?)", order_column)
-            },
-            GameSearchDirection::DESC => {
-                format!(" WHERE ({}, game.title, game.id) < (?, ?, ?)", order_column)
-            }
-        };
-        query.push_str(&offset_clause);
-        // Insert in reverse order
-        params.insert(0, SearchParam::String(offset.game_id.clone()));
-        params.insert(0, SearchParam::String(offset.title.clone()));
-        params.insert(0, SearchParam::String(offset.value.clone()));
+        if search.order.column == GameSearchSortable::CUSTOM {
+            let offset_clause =
+                format!(" WHERE OrderedIDs.RowNum > ?");
+            query.push_str(&offset_clause);
+            params.insert(0, SearchParam::Integer64(coerce_to_i64(&offset.value)));
+        } else {
+            let offset_clause = match search.order.direction {
+                GameSearchDirection::ASC => {
+                    format!(" WHERE ({}, game.title, game.id) > (?, ?, ?)", order_column)
+                }
+                GameSearchDirection::DESC => {
+                    format!(" WHERE ({}, game.title, game.id) < (?, ?, ?)", order_column)
+                }
+            };
+            query.push_str(&offset_clause);
+
+            // Insert in reverse order
+            params.insert(0, SearchParam::String(offset.game_id.clone()));
+            params.insert(0, SearchParam::String(offset.title.clone()));
+            params.insert(0, SearchParam::String(offset.value.clone()));
+        }
+
+
     }
 
     // Combine all where clauses
@@ -792,7 +878,7 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
         // Offset will begin WHERE itself, otherwise we're ANDing the offset
         let start_clause = match search.offset {
             Some(_) => " AND (",
-            None => " WHERE ("
+            None => " WHERE (",
         };
         query.push_str(start_clause);
         query.push_str(&where_clause);
@@ -804,10 +890,18 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
         let limit_query = format!(" LIMIT {}", search.limit);
         query.push_str(&limit_query);
     } else {
-        if order_column == "game.title" {
+        if search.order.column == GameSearchSortable::CUSTOM {
+            query.push_str(" ORDER BY OrderedIDs.RowNum");
+        } else if order_column == "game.title" {
             query.push_str(format!(" ORDER BY game.title {}", order_direction).as_str());
         } else {
-            query.push_str(format!(" ORDER BY {} {}, game.title {}", order_column, order_direction, order_direction).as_str());
+            query.push_str(
+                format!(
+                    " ORDER BY {} {}, game.title {}",
+                    order_column, order_direction, order_direction
+                )
+                .as_str(),
+            );
         }
         let limit_query = format!(" LIMIT {}", search.limit);
         query.push_str(&limit_query);
@@ -828,29 +922,41 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         }
     }
 
-    let mut add_clause = |field_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
-        if let Some(value_list) = values {
-            let comparator = match (blacklist, exact) {
-                (true, true) => "!=",
-                (true, false) => "NOT LIKE",
-                (false, true) => "=",
-                (false, false) => "LIKE",
-            };
+    let mut add_clause =
+        |field_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
+            if let Some(value_list) = values {
+                let comparator = match (blacklist, exact) {
+                    (true, true) => "!=",
+                    (true, false) => "NOT LIKE",
+                    (false, true) => "=",
+                    (false, false) => "LIKE",
+                };
 
-            for value in value_list {
-                where_clauses.push(format!("game.{} {} ?", field_name, comparator));
-                if exact {
-                    params.push(SearchParam::String(value.clone()));
+                // Exact OR - else - Inexact OR / Inexact AND / Exact AND
+                if exact && filter.match_any {
+                    let comparator = match blacklist {
+                        true => "NOT IN",
+                        false => "IN",
+                    };
+                    where_clauses.push(format!("game.{} {} rarray(?)", field_name, comparator));
+                    params.push(SearchParam::StringVec(value_list.clone()));
                 } else {
-                    let p = format!("%{}%", value);
-                    params.push(SearchParam::String(p));
+                    for value in value_list {
+                        where_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+                    }
                 }
             }
-        }
-    };
+        };
 
     // exact whitelist
     exact_whitelist_clause!(add_clause, "id", &filter.exact_whitelist.id);
+    exact_whitelist_clause!(add_clause, "id", &filter.whitelist.id);
     exact_whitelist_clause!(add_clause, "library", &filter.exact_whitelist.library);
     exact_whitelist_clause!(add_clause, "developer", &filter.exact_whitelist.developer);
     exact_whitelist_clause!(add_clause, "publisher", &filter.exact_whitelist.publisher);
@@ -859,11 +965,16 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     exact_whitelist_clause!(add_clause, "status", &filter.exact_whitelist.status);
     exact_whitelist_clause!(add_clause, "notes", &filter.exact_whitelist.notes);
     exact_whitelist_clause!(add_clause, "source", &filter.exact_whitelist.source);
-    exact_whitelist_clause!(add_clause, "originalDescription", &filter.exact_whitelist.original_description);
+    exact_whitelist_clause!(
+        add_clause,
+        "originalDescription",
+        &filter.exact_whitelist.original_description
+    );
     exact_whitelist_clause!(add_clause, "language", &filter.exact_whitelist.language);
 
     // exact blacklist
     exact_blacklist_clause!(add_clause, "id", &filter.exact_blacklist.id);
+    exact_blacklist_clause!(add_clause, "id", &filter.blacklist.id);
     exact_blacklist_clause!(add_clause, "library", &filter.exact_blacklist.library);
     exact_blacklist_clause!(add_clause, "developer", &filter.exact_blacklist.developer);
     exact_blacklist_clause!(add_clause, "publisher", &filter.exact_blacklist.publisher);
@@ -872,11 +983,14 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     exact_blacklist_clause!(add_clause, "status", &filter.exact_blacklist.status);
     exact_blacklist_clause!(add_clause, "notes", &filter.exact_blacklist.notes);
     exact_blacklist_clause!(add_clause, "source", &filter.exact_blacklist.source);
-    exact_blacklist_clause!(add_clause, "originalDescription", &filter.exact_blacklist.original_description);
+    exact_blacklist_clause!(
+        add_clause,
+        "originalDescription",
+        &filter.exact_blacklist.original_description
+    );
     exact_blacklist_clause!(add_clause, "language", &filter.exact_blacklist.language);
 
     // whitelist
-    whitelist_clause!(add_clause, "id", &filter.whitelist.id);
     whitelist_clause!(add_clause, "library", &filter.whitelist.library);
     whitelist_clause!(add_clause, "developer", &filter.whitelist.developer);
     whitelist_clause!(add_clause, "publisher", &filter.whitelist.publisher);
@@ -885,11 +999,14 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     whitelist_clause!(add_clause, "status", &filter.whitelist.status);
     whitelist_clause!(add_clause, "notes", &filter.whitelist.notes);
     whitelist_clause!(add_clause, "source", &filter.whitelist.source);
-    whitelist_clause!(add_clause, "originalDescription", &filter.whitelist.original_description);
+    whitelist_clause!(
+        add_clause,
+        "originalDescription",
+        &filter.whitelist.original_description
+    );
     whitelist_clause!(add_clause, "language", &filter.whitelist.language);
 
     // blacklist
-    blacklist_clause!(add_clause, "id", &filter.blacklist.id);
     blacklist_clause!(add_clause, "library", &filter.blacklist.library);
     blacklist_clause!(add_clause, "developer", &filter.blacklist.developer);
     blacklist_clause!(add_clause, "publisher", &filter.blacklist.publisher);
@@ -898,72 +1015,114 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     blacklist_clause!(add_clause, "status", &filter.blacklist.status);
     blacklist_clause!(add_clause, "notes", &filter.blacklist.notes);
     blacklist_clause!(add_clause, "source", &filter.blacklist.source);
-    blacklist_clause!(add_clause, "originalDescription", &filter.blacklist.original_description);
+    blacklist_clause!(
+        add_clause,
+        "originalDescription",
+        &filter.blacklist.original_description
+    );
     blacklist_clause!(add_clause, "language", &filter.blacklist.language);
 
-    let mut add_tagged_clause = |tag_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
-        if let Some(value_list) = values {
-            let comparator = match blacklist {
-                true => "NOT IN",
-                false => "IN",
-            };
+    let mut add_tagged_clause =
+        |tag_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
+            if let Some(value_list) = values {
+                let comparator = match blacklist {
+                    true => "NOT IN",
+                    false => "IN",
+                };
 
-            // Inexact OR / Inexact AND / Exact AND
-            if exact && filter.match_any {
-                // Must be an exact OR
-                params.push(SearchParam::StringVec(value_list.clone()));
+                // Exact OR - else - Inexact OR / Inexact AND / Exact AND
+                if exact && filter.match_any {
+                    // Must be an exact OR
+                    params.push(SearchParam::StringVec(value_list.clone()));
 
-                let tag_query = format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                SELECT {}Id FROM {}_alias WHERE name IN rarray(?)))", comparator, tag_name, tag_name, tag_name, tag_name, tag_name);
+                    let tag_query = format!(
+                        "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                SELECT {}Id FROM {}_alias WHERE name IN rarray(?)))",
+                        comparator, tag_name, tag_name, tag_name, tag_name, tag_name
+                    );
 
-                where_clauses.push(tag_query);
-            } else {
-                let mut inner_tag_queries = vec![];
-
-                // Add parameters
-                if exact {
-                    for value in value_list {
-                        inner_tag_queries.push("name = ?");
-                        params.push(SearchParam::String(value.clone()));
-                    }
+                    where_clauses.push(tag_query);
                 } else {
-                    for value in value_list {
-                        inner_tag_queries.push("name LIKE ?");
-                        let p = format!("%{}%", value);
-                        params.push(SearchParam::String(p));
-                    }
-                }
+                    let mut inner_tag_queries = vec![];
 
-                // Add query       
-                let tag_query = match filter.match_any {
-                    false => {
-                        if inner_tag_queries.len() == 1 {
-                            format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                    // Add parameters
+                    if exact {
+                        for value in value_list {
+                            inner_tag_queries.push("name = ?");
+                            params.push(SearchParam::String(value.clone()));
+                        }
+                    } else {
+                        for value in value_list {
+                            inner_tag_queries.push("name LIKE ?");
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+                    }
+
+                    // Add query
+                    let tag_query = match filter.match_any {
+                        false => {
+                            if inner_tag_queries.len() == 1 {
+                                format!(
+                                    "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                                 SELECT {}Id FROM {}_alias WHERE {})
-                            )", comparator, tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0])
-                        } else {
-                            let mut q = format!("SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                            )",
+                                    comparator,
+                                    tag_name,
+                                    tag_name,
+                                    tag_name,
+                                    tag_name,
+                                    tag_name,
+                                    inner_tag_queries[0]
+                                )
+                            } else {
+                                let mut q = format!(
+                                    "SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                                     SELECT {}Id FROM {}_alias WHERE {}
-                                )", tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_queries[0]);
-                            for inner_tag_query in inner_tag_queries.iter().skip(1) {
-                                let part = format!(" AND gameId IN (
+                                )",
+                                    tag_name,
+                                    tag_name,
+                                    tag_name,
+                                    tag_name,
+                                    tag_name,
+                                    inner_tag_queries[0]
+                                );
+                                for inner_tag_query in inner_tag_queries.iter().skip(1) {
+                                    let part = format!(
+                                        " AND gameId IN (
                                     SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                                         SELECT {}Id FROM {}_alias WHERE {}
                                     )
-                                )", tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_query);
-                                q.push_str(&part);
+                                )",
+                                        tag_name,
+                                        tag_name,
+                                        tag_name,
+                                        tag_name,
+                                        tag_name,
+                                        inner_tag_query
+                                    );
+                                    q.push_str(&part);
+                                }
+                                format!("game.id {} ({})", comparator, q)
                             }
-                            format!("game.id {} ({})", comparator, q)
                         }
-                    },
-                    true => format!("game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
-                    SELECT {}Id FROM {}_alias WHERE name IN {}))", comparator, tag_name, tag_name, tag_name, tag_name, tag_name, inner_tag_queries.join(" OR "))
-                };
+                        true => format!(
+                            "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                    SELECT {}Id FROM {}_alias WHERE name IN {}))",
+                            comparator,
+                            tag_name,
+                            tag_name,
+                            tag_name,
+                            tag_name,
+                            tag_name,
+                            inner_tag_queries.join(" OR ")
+                        ),
+                    };
 
-                where_clauses.push(tag_query);
+                    where_clauses.push(tag_query);
+                }
             }
-        }
-    };
+        };
 
     // tag groups
     add_tagged_clause("tag", &filter.whitelist.tags, false, false);
@@ -976,94 +1135,191 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     add_tagged_clause("platform", &filter.exact_whitelist.platforms, true, false);
     add_tagged_clause("platform", &filter.exact_blacklist.platforms, true, true);
 
-    let mut add_multi_clause = |field_names: Vec<&str>, filter: &Option<Vec<String>>, exact: bool, blacklist: bool| {
-        if let Some(value_list) = filter {
-            let comparator = match (blacklist, exact) {
-                (true, true) => "!=",
-                (true, false) => "NOT LIKE",
-                (false, true) => "=",
-                (false, false) => "LIKE",
-            };
+    let mut add_multi_clause =
+        |field_names: Vec<&str>, filter: &Option<Vec<String>>, exact: bool, blacklist: bool| {
+            if let Some(value_list) = filter {
+                let comparator = match (blacklist, exact) {
+                    (true, true) => "!=",
+                    (true, false) => "NOT LIKE",
+                    (false, true) => "=",
+                    (false, false) => "LIKE",
+                };
 
-            for value in value_list {
-                let mut value_clauses = vec![];
-                for field_name in field_names.clone() {
-                    value_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                for value in value_list {
+                    let mut value_clauses = vec![];
+                    for field_name in field_names.clone() {
+                        value_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+                    }
+                    where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
+                }
+            }
+        };
+
+    // whitelist
+    add_multi_clause(
+        vec!["title", "alternateTitles"],
+        &filter.whitelist.title,
+        false,
+        false,
+    );
+    add_multi_clause(
+        vec![
+            "title",
+            "alternateTitles",
+            "developer",
+            "publisher",
+            "series",
+        ],
+        &filter.whitelist.generic,
+        false,
+        false,
+    );
+
+    // blacklist
+    add_multi_clause(
+        vec!["title", "alternateTitles"],
+        &filter.blacklist.title,
+        false,
+        true,
+    );
+    add_multi_clause(
+        vec![
+            "title",
+            "alternateTitles",
+            "developer",
+            "publisher",
+            "series",
+        ],
+        &filter.blacklist.generic,
+        false,
+        true,
+    );
+
+    let mut add_joint_game_data_clause =
+        |field_name: &str,
+         game_field_name: &str,
+         filter: &Option<Vec<String>>,
+         exact: bool,
+         blacklist: bool| {
+            if let Some(value_list) = filter {
+                let comparator = match (blacklist, exact) {
+                    (true, true) => "!=",
+                    (true, false) => "NOT LIKE",
+                    (false, true) => "=",
+                    (false, false) => "LIKE",
+                };
+
+                for value in value_list {
+                    let mut value_clauses = vec![];
+                    value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
                     if exact {
                         params.push(SearchParam::String(value.clone()));
                     } else {
                         let p = format!("%{}%", value);
                         params.push(SearchParam::String(p));
                     }
+
+                    value_clauses.push(format!(
+                        "game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)",
+                        field_name, comparator
+                    ));
+                    if exact {
+                        params.push(SearchParam::String(value.clone()));
+                    } else {
+                        let p = format!("%{}%", value);
+                        params.push(SearchParam::String(p));
+                    }
+                    where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
                 }
-                where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
             }
-        }
-    };
+        };
 
-    // whitelist
-    add_multi_clause(vec!["title", "alternateTitles"], &filter.whitelist.title, false, false);
-    add_multi_clause(vec!["title", "alternateTitles", "developer", "publisher", "series"], &filter.whitelist.generic, false, false);
-    
-    // blacklist
-    add_multi_clause(vec!["title", "alternateTitles"], &filter.blacklist.title, false, true);
-    add_multi_clause(vec!["title", "alternateTitles", "developer", "publisher", "series"], &filter.blacklist.generic, false, true);
+    add_joint_game_data_clause(
+        "applicationPath",
+        "applicationPath",
+        &filter.whitelist.application_path,
+        false,
+        false,
+    );
+    add_joint_game_data_clause(
+        "applicationPath",
+        "applicationPath",
+        &filter.blacklist.application_path,
+        false,
+        true,
+    );
+    add_joint_game_data_clause(
+        "applicationPath",
+        "applicationPath",
+        &filter.exact_whitelist.application_path,
+        true,
+        false,
+    );
+    add_joint_game_data_clause(
+        "applicationPath",
+        "applicationPath",
+        &filter.exact_blacklist.application_path,
+        true,
+        true,
+    );
 
-    let mut add_joint_game_data_clause = |field_name: &str, game_field_name: &str, filter: &Option<Vec<String>>, exact: bool, blacklist: bool| {
-        if let Some(value_list) = filter {
-            let comparator = match (blacklist, exact) {
-                (true, true) => "!=",
-                (true, false) => "NOT LIKE",
-                (false, true) => "=",
-                (false, false) => "LIKE",
-            };
-
-            for value in value_list {
-                let mut value_clauses = vec![];
-                value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
-                if exact {
-                    params.push(SearchParam::String(value.clone()));
-                } else {
-                    let p = format!("%{}%", value);
-                    params.push(SearchParam::String(p));
-                }
-                
-                value_clauses.push(format!("game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)", field_name, comparator));
-                if exact {
-                    params.push(SearchParam::String(value.clone()));
-                } else {
-                    let p = format!("%{}%", value);
-                    params.push(SearchParam::String(p));
-                }
-                where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
-            }
-        }
-    };
-
-    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.whitelist.application_path, false, false);
-    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.blacklist.application_path, false, true);
-    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.exact_whitelist.application_path, true, false);
-    add_joint_game_data_clause("applicationPath", "applicationPath", &filter.exact_blacklist.application_path, true, true);
-
-    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.whitelist.launch_command, false, false);
-    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.blacklist.launch_command, false, true);
-    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.exact_whitelist.launch_command, true, false);
-    add_joint_game_data_clause("launchCommand", "launchCommand", &filter.exact_blacklist.launch_command, true, true);
+    add_joint_game_data_clause(
+        "launchCommand",
+        "launchCommand",
+        &filter.whitelist.launch_command,
+        false,
+        false,
+    );
+    add_joint_game_data_clause(
+        "launchCommand",
+        "launchCommand",
+        &filter.blacklist.launch_command,
+        false,
+        true,
+    );
+    add_joint_game_data_clause(
+        "launchCommand",
+        "launchCommand",
+        &filter.exact_whitelist.launch_command,
+        true,
+        false,
+    );
+    add_joint_game_data_clause(
+        "launchCommand",
+        "launchCommand",
+        &filter.exact_blacklist.launch_command,
+        true,
+        true,
+    );
 
     // Tag and Platform comparisons
-    let mut add_compare_tag_clause = |field_name: &str, comparator: KeyChar, filter: &Option<i64>| {
+    let mut add_compare_tag_clause = |field_name: &str,
+                                      comparator: KeyChar,
+                                      filter: &Option<i64>| {
         if let Some(f) = filter {
             if *f == 0 {
                 match comparator {
                     KeyChar::EQUALS => {
                         // Select games with exactly 0 additional apps
-                        where_clauses.push(format!("game.id NOT IN (SELECT gameId FROM game_{}s_{})", field_name, field_name));
-                    },
+                        where_clauses.push(format!(
+                            "game.id NOT IN (SELECT gameId FROM game_{}s_{})",
+                            field_name, field_name
+                        ));
+                    }
                     KeyChar::LOWER => (),
                     KeyChar::HIGHER => {
                         // Select games with 1 or more additional apps
-                        where_clauses.push(format!("game.id IN (SELECT gameId FROM game_{}s_{})", field_name, field_name));
-                    },
+                        where_clauses.push(format!(
+                            "game.id IN (SELECT gameId FROM game_{}s_{})",
+                            field_name, field_name
+                        ));
+                    }
                     KeyChar::MATCHES => (),
                 }
             } else {
@@ -1072,15 +1328,15 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     KeyChar::LOWER => {
                         where_clauses.push(format!("game.id NOT IN (SELECT gameId FROM game_{}s_{} GROUP BY gameId HAVING COUNT(gameId) >= ?)", field_name, field_name));
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                     KeyChar::HIGHER => {
                         where_clauses.push(format!("game.id IN (SELECT gameId FROM game_{}s_{} GROUP BY gameId HAVING COUNT(gameId) > ?)", field_name, field_name));
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                     KeyChar::EQUALS => {
                         where_clauses.push(format!("game.id IN (SELECT gameId FROM game_{}s_{} GROUP BY gameId HAVING COUNT(gameId) = ?)", field_name, field_name));
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                 }
             }
         }
@@ -1101,13 +1357,17 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                 match comparator {
                     KeyChar::EQUALS => {
                         // Select games with exactly 0 additional apps
-                        where_clauses.push("game.id NOT IN (SELECT parentGameId FROM additional_app)".to_string());
-                    },
+                        where_clauses.push(
+                            "game.id NOT IN (SELECT parentGameId FROM additional_app)".to_string(),
+                        );
+                    }
                     KeyChar::LOWER => (),
                     KeyChar::HIGHER => {
                         // Select games with 1 or more additional apps
-                        where_clauses.push("game.id IN (SELECT parentGameId FROM additional_app)".to_string());
-                    },
+                        where_clauses.push(
+                            "game.id IN (SELECT parentGameId FROM additional_app)".to_string(),
+                        );
+                    }
                     KeyChar::MATCHES => (),
                 }
             } else {
@@ -1116,15 +1376,15 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     KeyChar::LOWER => {
                         where_clauses.push("game.id NOT IN (SELECT parentGameId FROM additional_app GROUP BY parentGameId HAVING COUNT(parentGameId) >= ?)".to_string());
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                     KeyChar::HIGHER => {
                         where_clauses.push("game.id IN (SELECT parentGameId FROM additional_app GROUP BY parentGameId HAVING COUNT(parentGameId) > ?)".to_string());
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                     KeyChar::EQUALS => {
                         where_clauses.push("game.id IN (SELECT parentGameId FROM additional_app GROUP BY parentGameId HAVING COUNT(parentGameId) = ?)".to_string());
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                 }
             }
         }
@@ -1140,13 +1400,14 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                 match comparator {
                     KeyChar::EQUALS => {
                         // Select games with exactly 0 additional apps
-                        where_clauses.push("game.id NOT IN (SELECT gameId FROM game_data)".to_string());
-                    },
+                        where_clauses
+                            .push("game.id NOT IN (SELECT gameId FROM game_data)".to_string());
+                    }
                     KeyChar::LOWER => (),
                     KeyChar::HIGHER => {
                         // Select games with 1 or more additional apps
                         where_clauses.push("game.id IN (SELECT gameId FROM game_data)".to_string());
-                    },
+                    }
                     KeyChar::MATCHES => (),
                 }
             } else {
@@ -1155,15 +1416,15 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     KeyChar::LOWER => {
                         where_clauses.push("game.id NOT IN (SELECT gameId FROM game_data GROUP BY gameId HAVING COUNT(gameId) >= ?)".to_string());
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                     KeyChar::HIGHER => {
                         where_clauses.push("game.id IN (SELECT gameId FROM game_data GROUP BY gameId HAVING COUNT(gameId) > ?)".to_string());
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                     KeyChar::EQUALS => {
                         where_clauses.push("game.id IN (SELECT gameId FROM game_data GROUP BY gameId HAVING COUNT(gameId) = ?)".to_string());
                         params.push(SearchParam::Integer64(f.clone()));
-                    },
+                    }
                 }
             }
         }
@@ -1173,39 +1434,87 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     add_compare_game_data_clause(KeyChar::HIGHER, &filter.higher_than.game_data);
     add_compare_game_data_clause(KeyChar::EQUALS, &filter.equal_to.game_data);
 
-    let mut add_compare_dates_clause = |date_field: &str, comparator: KeyChar, filter: &Option<String>| {
-        if let Some(f) = filter {
-            match comparator {
-                KeyChar::MATCHES => (),
-                KeyChar::LOWER => {
-                    where_clauses.push(format!("date(game.{}) < ?", date_field));
-                    params.push(SearchParam::String(f.clone()));
-                },
-                KeyChar::HIGHER => {
-                    // e.g "2021-01" will generate >= "2021-01" and < "2021-02"
-                    where_clauses.push(format!("date(game.{}) >= ?", date_field));
-                    params.push(SearchParam::String(f.clone()));
-                },
-                KeyChar::EQUALS => {
-                    where_clauses.push(format!("date(game.{}) LIKE ?", date_field));
-                    let p = f.clone() + "%";
-                    params.push(SearchParam::String(p));
-                },
+    let mut add_compare_dates_clause =
+        |date_field: &str, comparator: KeyChar, filter: &Option<String>| {
+            if let Some(f) = filter {
+                match comparator {
+                    KeyChar::MATCHES => (),
+                    KeyChar::LOWER => {
+                        where_clauses.push(format!("date(game.{}) < ?", date_field));
+                        params.push(SearchParam::String(f.clone()));
+                    }
+                    KeyChar::HIGHER => {
+                        // e.g "2021-01" will generate >= "2021-01" and < "2021-02"
+                        where_clauses.push(format!("date(game.{}) >= ?", date_field));
+                        params.push(SearchParam::String(f.clone()));
+                    }
+                    KeyChar::EQUALS => {
+                        where_clauses.push(format!("date(game.{}) LIKE ?", date_field));
+                        let p = f.clone() + "%";
+                        params.push(SearchParam::String(p));
+                    }
+                }
             }
-        }
-    };
+        };
 
     add_compare_dates_clause("dateAdded", KeyChar::LOWER, &filter.lower_than.date_added);
     add_compare_dates_clause("dateAdded", KeyChar::HIGHER, &filter.higher_than.date_added);
     add_compare_dates_clause("dateAdded", KeyChar::EQUALS, &filter.equal_to.date_added);
 
-    add_compare_dates_clause("dateModified", KeyChar::LOWER, &filter.lower_than.date_modified);
-    add_compare_dates_clause("dateModified", KeyChar::HIGHER, &filter.higher_than.date_modified);
-    add_compare_dates_clause("dateModified", KeyChar::EQUALS, &filter.equal_to.date_modified);
+    add_compare_dates_clause(
+        "dateModified",
+        KeyChar::LOWER,
+        &filter.lower_than.date_modified,
+    );
+    add_compare_dates_clause(
+        "dateModified",
+        KeyChar::HIGHER,
+        &filter.higher_than.date_modified,
+    );
+    add_compare_dates_clause(
+        "dateModified",
+        KeyChar::EQUALS,
+        &filter.equal_to.date_modified,
+    );
 
-    add_compare_dates_clause("releaseDate", KeyChar::LOWER, &filter.lower_than.release_date);
-    add_compare_dates_clause("releaseDate", KeyChar::HIGHER, &filter.higher_than.release_date);
-    add_compare_dates_clause("releaseDate", KeyChar::EQUALS, &filter.equal_to.release_date);
+    let mut add_compare_dates_string_clause =
+        |date_field: &str, comparator: KeyChar, filter: &Option<String>| {
+            if let Some(f) = filter {
+                match comparator {
+                    KeyChar::MATCHES => (),
+                    KeyChar::LOWER => {
+                        where_clauses.push(format!("game.{} < ?", date_field));
+                        params.push(SearchParam::String(f.clone()));
+                    }
+                    KeyChar::HIGHER => {
+                        // e.g "2021-01" will generate >= "2021-01" and < "2021-02"
+                        where_clauses.push(format!("game.{} >= ?", date_field));
+                        params.push(SearchParam::String(f.clone()));
+                    }
+                    KeyChar::EQUALS => {
+                        where_clauses.push(format!("game.{} LIKE ?", date_field));
+                        let p = f.clone() + "%";
+                        params.push(SearchParam::String(p));
+                    }
+                }
+            }
+        };
+
+    add_compare_dates_string_clause(
+        "releaseDate",
+        KeyChar::LOWER,
+        &filter.lower_than.release_date,
+    );
+    add_compare_dates_string_clause(
+        "releaseDate",
+        KeyChar::HIGHER,
+        &filter.higher_than.release_date,
+    );
+    add_compare_dates_string_clause(
+        "releaseDate",
+        KeyChar::EQUALS,
+        &filter.equal_to.release_date,
+    );
 
     if filter.match_any {
         return where_clauses.join(" OR ");
@@ -1227,7 +1536,7 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
                 trim_mode = true;
                 formatted_query.push(ch);
                 formatted_query.push('\n');
-            },
+            }
             ')' => {
                 trim_mode = false;
                 indent -= 4;
@@ -1235,7 +1544,7 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
                 let spaces = " ".repeat(indent);
                 formatted_query.push_str(&spaces);
                 formatted_query.push(ch);
-            },
+            }
             '?' => {
                 if let Some(subst) = substitution_iter.next() {
                     let wrapped_subst = format!("'{}'", subst);
@@ -1244,12 +1553,12 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
                     // If there are no more substitutions, keep the '?' or handle as needed
                     formatted_query.push(ch);
                 }
-            },
+            }
             ' ' => {
                 if !trim_mode {
                     formatted_query.push(ch);
                 }
-            },
+            }
             '\n' => trim_mode = true,
             _ => {
                 if trim_mode {
@@ -1258,11 +1567,24 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
                     trim_mode = false;
                 }
                 formatted_query.push(ch);
-            },
+            }
         }
     }
 
     formatted_query
+}
+
+pub fn new_custom_id_order(conn: &Connection, custom_id_order: Vec<String>) -> Result<()> {
+    let new_order = custom_id_order.join(";");
+    let current_order = conn.query_row("SELECT IFNULL(string_agg(id, ';'), ''),  ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RowNum FROM custom_id_order ORDER BY RowNum", (), |row| row.get::<_, String>(0))?;
+    if current_order != new_order {
+        conn.execute("DELETE FROM custom_id_order", ())?;
+        let mut stmt = conn.prepare("INSERT INTO custom_id_order (id) VALUES (?)")?;
+        for id in custom_id_order {
+            stmt.execute(params![id])?;
+        }
+    }
+    Ok(())
 }
 
 pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Result<()> {
@@ -1280,8 +1602,10 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
         }
     }
 
-    if search.filter.exact_blacklist.tags.is_none() || search.filter.exact_blacklist.tags.clone().unwrap().len() == 0 {
-        return Ok(())
+    if search.filter.exact_blacklist.tags.is_none()
+        || search.filter.exact_blacklist.tags.clone().unwrap().len() == 0
+    {
+        return Ok(());
     }
 
     let mut tags = search.filter.exact_blacklist.tags.clone().unwrap();
@@ -1289,23 +1613,25 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let tags_key = tags.join(";");
 
     // Check against existing key
-    let tag_filter_info = conn.query_row("SELECT key, dirty FROM tag_filter_index_info", (), |row| {
-        Ok(TagFilterInfo{
-            key: row.get(0)?,
-            dirty: row.get(1)?,
+    let tag_filter_info = conn
+        .query_row("SELECT key, dirty FROM tag_filter_index_info", (), |row| {
+            Ok(TagFilterInfo {
+                key: row.get(0)?,
+                dirty: row.get(1)?,
+            })
         })
-    }).optional()?;
+        .optional()?;
 
     match tag_filter_info {
         Some(info) => {
             // Index already built and clean, return
             if !info.dirty && tags_key == info.key {
-                return Ok(())
+                return Ok(());
             }
-        },
+        }
         None => {
             // No existing index, continue
-        },
+        }
     }
 
     println!("filtering {} tags", tags.len());
@@ -1315,7 +1641,8 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let (query, params) = build_search_query(search, TAG_FILTER_INDEX_QUERY);
 
     // Convert the parameters array to something rusqlite understands
-    let params_as_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     println!("{}", format_query(&query, params.clone()));
 
@@ -1325,7 +1652,10 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     tags.sort();
 
     conn.execute("DELETE FROM tag_filter_index_info", ())?; // Empty existing index info
-    conn.execute("INSERT INTO tag_filter_index_info (key, dirty) VALUES (?, 0)", params![tags_key])?;
+    conn.execute(
+        "INSERT INTO tag_filter_index_info (key, dirty) VALUES (?, 0)",
+        params![tags_key],
+    )?;
 
     Ok(())
 }
@@ -1377,18 +1707,18 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     '#' => {
                         token = token.strip_prefix('#').unwrap();
                         working_key = "tag".to_owned();
-                    },
+                    }
                     '!' => {
                         token = token.strip_prefix('!').unwrap();
                         working_key = "platform".to_owned();
-                    },
+                    }
                     '@' => {
                         token = token.strip_prefix('@').unwrap();
                         working_key = "developer".to_owned();
                     }
                     _ => {
                         // No special token, check if we're preceding a key
-                        if !token.contains(':') && exact{
+                        if !token.contains(':') && exact {
                             // No key, is generic, do not use exact
                             exact = false;
                             _t = "=".to_owned() + token;
@@ -1397,7 +1727,6 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     }
                 }
             }
-
         }
 
         if token.starts_with('"') {
@@ -1466,7 +1795,12 @@ pub fn parse_user_input(input: &str) -> GameSearch {
         }
 
         if working_value != "" {
-            debug_println!("key: {}, value: {}, negative: {}", working_key, working_value, negative);
+            debug_println!(
+                "key: {}, value: {}, negative: {}",
+                working_key,
+                working_value,
+                negative
+            );
 
             let mut list = match (negative, exact) {
                 (true, false) => filter.blacklist.clone(),
@@ -1482,52 +1816,68 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 match kc {
                     KeyChar::MATCHES => {
                         processed = false;
-                    },
+                    }
                     KeyChar::LOWER => {
                         let value = coerce_to_i64(&working_value);
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.lower_than.tags = Some(value),
                             "platforms" => filter.lower_than.platforms = Some(value),
-                            "dateadded" => filter.lower_than.date_added = Some(working_value.clone()),
-                            "datemodified" => filter.lower_than.date_modified = Some(working_value.clone()),
-                            "releasedate" => filter.lower_than.release_date = Some(working_value.clone()),
+                            "dateadded" => {
+                                filter.lower_than.date_added = Some(working_value.clone())
+                            }
+                            "datemodified" => {
+                                filter.lower_than.date_modified = Some(working_value.clone())
+                            }
+                            "releasedate" => {
+                                filter.lower_than.release_date = Some(working_value.clone())
+                            }
                             "gamedata" => filter.lower_than.game_data = Some(value),
-                            "addapps" => filter.lower_than.add_apps = Some(value), 
+                            "addapps" => filter.lower_than.add_apps = Some(value),
                             _ => {
                                 processed = false;
                             }
                         }
-                    },
+                    }
                     KeyChar::HIGHER => {
                         let value = coerce_to_i64(&working_value);
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.higher_than.tags = Some(value),
                             "platforms" => filter.higher_than.platforms = Some(value),
-                            "dateadded" => filter.higher_than.date_added = Some(working_value.clone()),
-                            "datemodified" => filter.higher_than.date_modified = Some(working_value.clone()),
-                            "releasedate" => filter.higher_than.release_date = Some(working_value.clone()),
+                            "dateadded" => {
+                                filter.higher_than.date_added = Some(working_value.clone())
+                            }
+                            "datemodified" => {
+                                filter.higher_than.date_modified = Some(working_value.clone())
+                            }
+                            "releasedate" => {
+                                filter.higher_than.release_date = Some(working_value.clone())
+                            }
                             "gamedata" => filter.higher_than.game_data = Some(value),
-                            "addapps" => filter.higher_than.add_apps = Some(value), 
+                            "addapps" => filter.higher_than.add_apps = Some(value),
                             _ => {
                                 processed = false;
                             }
                         }
-                    },
+                    }
                     KeyChar::EQUALS => {
                         let value = coerce_to_i64(&working_value);
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.equal_to.tags = Some(value),
                             "platforms" => filter.equal_to.platforms = Some(value),
                             "dateadded" => filter.equal_to.date_added = Some(working_value.clone()),
-                            "datemodified" => filter.equal_to.date_modified = Some(working_value.clone()),
-                            "releasedate" => filter.equal_to.release_date = Some(working_value.clone()),
+                            "datemodified" => {
+                                filter.equal_to.date_modified = Some(working_value.clone())
+                            }
+                            "releasedate" => {
+                                filter.equal_to.release_date = Some(working_value.clone())
+                            }
                             "gamedata" => filter.equal_to.game_data = Some(value),
-                            "addapps" => filter.equal_to.add_apps = Some(value), 
+                            "addapps" => filter.equal_to.add_apps = Some(value),
                             _ => {
                                 processed = false;
                             }
                         }
-                    },
+                    }
                 }
             }
 
@@ -1547,19 +1897,19 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     "status" => list.status.push(value),
                     "note" | "notes" => list.notes.push(value),
                     "src" | "source" => list.source.push(value),
-                    "desc" | "description" | "originaldescription" => list.original_description.push(value),
+                    "desc" | "description" | "originaldescription" => {
+                        list.original_description.push(value)
+                    }
                     "lang" | "language" => list.language.push(value),
                     "path" | "app" | "applicationpath" => list.application_path.push(value),
                     "lc" | "launchcommand" => list.launch_command.push(value),
-                    _ => {
-                        match &working_key_char {
-                            Some(kc) => {
-                                let ks: String = kc.clone().into();
-                                let full_value = working_key.clone() + &ks + &value;
-                                list.generic.push(full_value);
-                            },
-                            None => list.generic.push(value)
+                    _ => match &working_key_char {
+                        Some(kc) => {
+                            let ks: String = kc.clone().into();
+                            let full_value = working_key.clone() + &ks + &value;
+                            list.generic.push(full_value);
                         }
+                        None => list.generic.push(value),
                     },
                 }
 
@@ -1570,8 +1920,6 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     (false, true) => filter.exact_whitelist = list,
                 }
             }
-
-            
 
             negative = false;
             exact = false;
@@ -1620,34 +1968,20 @@ fn earliest_key_char(s: &str) -> Option<KeyChar> {
     }
 
     match earliest_key_char {
-        Some(ekc) => {
-            match ekc {
-                ":" => {
-                    Some(KeyChar::MATCHES)
-                }
-                "<" => {
-                    Some(KeyChar::LOWER)
-                }
-                ">" => {
-                    Some(KeyChar::HIGHER)
-                }
-                "=" => {
-                    Some(KeyChar::EQUALS)
-                },
-                _ => {
-                    None
-                }
-            }
+        Some(ekc) => match ekc {
+            ":" => Some(KeyChar::MATCHES),
+            "<" => Some(KeyChar::LOWER),
+            ">" => Some(KeyChar::HIGHER),
+            "=" => Some(KeyChar::EQUALS),
+            _ => None,
         },
-        None => {
-            None
-        }
+        None => None,
     }
 }
 
 fn coerce_to_i64(input: &str) -> i64 {
     match input.trim().parse::<i64>() {
         Ok(num) => num,
-        _ => 0
+        _ => 0,
     }
 }

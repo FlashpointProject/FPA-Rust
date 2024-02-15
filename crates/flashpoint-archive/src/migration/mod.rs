@@ -207,6 +207,11 @@ pub fn get() -> Migrations<'static> {
         M::up(r#"
             ALTER TABLE tag_filter_index_info ADD COLUMN dirty INTEGER DEFAULT 1;
             "#),
+        M::up(r#"
+            CREATE TABLE IF NOT EXISTS "custom_id_order" (
+                "id" VARCHAR NOT NULL
+            );
+            "#),
     ]);
 
     migrations
