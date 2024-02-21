@@ -1,6 +1,7 @@
 use rusqlite::{Connection, Result, params};
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct GameData {
     pub id: i64,
@@ -18,6 +19,7 @@ pub struct GameData {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct PartialGameData {
     pub id: Option<i64>,

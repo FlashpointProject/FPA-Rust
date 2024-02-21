@@ -8,6 +8,7 @@ use crate::{
 };
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct Tag {
     pub id: i64,
@@ -19,6 +20,7 @@ pub struct Tag {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct PartialTag {
     pub id: i64,
@@ -30,6 +32,7 @@ pub struct PartialTag {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct TagSuggestion {
     pub id: i64,
@@ -40,6 +43,7 @@ pub struct TagSuggestion {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct LooseTagAlias {
     pub id: i64,

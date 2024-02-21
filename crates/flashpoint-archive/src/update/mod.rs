@@ -28,12 +28,14 @@ impl ToSql for SqlVec<String> {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteDeletedGamesRes {
     pub games: Vec<RemoteDeletedGame>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteDeletedGame {
     pub id: String,
@@ -42,6 +44,7 @@ pub struct RemoteDeletedGame {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteGamesRes {
     pub games: Vec<RemoteGame>,
@@ -52,6 +55,7 @@ pub struct RemoteGamesRes {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteGameData {
     pub game_id: String,
@@ -66,6 +70,7 @@ pub struct RemoteGameData {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteAddApp {
     pub name: String,
@@ -77,6 +82,7 @@ pub struct RemoteAddApp {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteGame {
     pub id: String,
@@ -103,6 +109,7 @@ pub struct RemoteGame {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteCategory {
     pub id: i64,
@@ -112,6 +119,7 @@ pub struct RemoteCategory {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemoteTag {
     pub id: i64,
@@ -124,6 +132,7 @@ pub struct RemoteTag {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RemotePlatform {
     pub id: i64,
@@ -134,6 +143,7 @@ pub struct RemotePlatform {
     pub deleted: bool,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug)]
 pub struct Alias {
     id: i64,
@@ -194,8 +204,6 @@ pub fn apply_platforms(conn: &Connection, platforms: Vec<RemotePlatform>) -> Res
     // Handle updated platforms
     for platform in platforms.iter().filter(|p| existing_ids.contains(&p.id) && !p.deleted) {
         update_platform_stmt.execute(params![platform.date_modified, platform.name, platform.description, platform.id]).context(error::SqliteSnafu)?;
-
-        println!("{:?}", platform);
     }
 
     // Handle new platforms
@@ -209,7 +217,6 @@ pub fn apply_platforms(conn: &Connection, platforms: Vec<RemotePlatform>) -> Res
             insert_alias_stmt.execute(params![platform.id, &alias]).context(error::SqliteSnafu)?;
         }
         insert_platform_stmt.execute(params![platform.id, platform.date_modified, platform.name, platform.description]).context(error::SqliteSnafu)?;
-        println!("{:?}", platform);
     }
 
     Ok(())
@@ -423,8 +430,6 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
     conn.execute("UPDATE game
     SET activeDataId = (SELECT game_data.id FROM game_data WHERE game.id = game_data.gameId ORDER BY game_data.dateAdded DESC LIMIT 1)
     WHERE game.activeDataId = -1", ()).context(error::SqliteSnafu)?;
-
-    println!("Returning");
 
     mark_index_dirty(conn).context(error::SqliteSnafu)?;
 

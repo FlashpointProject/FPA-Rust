@@ -5,6 +5,7 @@ use rusqlite::{params, types::Value, Connection, OptionalExtension, Result};
 use crate::tag::{PartialTag, Tag, TagSuggestion};
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct PlatformAppPath {
     pub app_path: String,
@@ -169,13 +170,10 @@ pub fn save(conn: &Connection, partial: &PartialTag) -> Result<Tag> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
-    println!("FINDING {}", partial.id);
-
     let mut tag = match find_by_id(conn, partial.id)? {
         Some(t) => t,
         None => return Err(rusqlite::Error::QueryReturnedNoRows)
     };
-    println!("TEST ME B");
 
     let mut new_tag_aliases = vec![];
 
@@ -299,7 +297,7 @@ pub fn search_platform_suggestions(
 		FROM 
 			platform_alias ta1
 		JOIN 
-        platform t ON ta1.platform_aliasId = t.id
+        platform t ON ta1.platformId = t.id
 		JOIN 
         platform_alias ta2 ON t.primaryAliasId = ta2.id
 		WHERE 

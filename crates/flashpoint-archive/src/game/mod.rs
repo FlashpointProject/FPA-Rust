@@ -19,6 +19,45 @@ use napi::bindgen_prelude::{ToNapiValue, FromNapiValue};
 #[derive(Debug, Clone)]
 pub struct TagVec (Vec<String>);
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for TagVec {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let combined = self.0.join(";");
+        serializer.serialize_str(&combined)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for TagVec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TagVecVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for TagVecVisitor {
+            type Value = TagVec;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string separated by ;")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let parts: Vec<String> = value.split(';').map(String::from).collect();
+                Ok(TagVec(parts))
+            }
+        }
+
+        deserializer.deserialize_str(TagVecVisitor)
+    }
+}
+
 impl Deref for TagVec {
     type Target = Vec<String>;
 
@@ -162,6 +201,7 @@ impl FromSql for TagVec {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct AdditionalApp {
     pub id: String,
@@ -174,6 +214,7 @@ pub struct AdditionalApp {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct Game {
     pub id: String,
@@ -215,6 +256,7 @@ pub struct Game {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct PartialGame {
     pub id: String,

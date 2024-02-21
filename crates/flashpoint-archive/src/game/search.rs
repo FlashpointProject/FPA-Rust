@@ -83,6 +83,15 @@ pub struct GameSearchOrder {
 #[derive(Debug, PartialEq)]
 pub enum GameSearchSortable {
     TITLE,
+    DEVELOPER,
+    PUBLISHER,
+    SERIES,
+    PLATFORM,
+    DATEADDED,
+    DATEMODIFIED,
+    RELEASEDATE,
+    LASTPLAYED,
+    PLAYTIME,
     RANDOM,
     CUSTOM,
 }
@@ -603,6 +612,15 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
 
     let order_column = match search.order.column {
         GameSearchSortable::TITLE => "game.title",
+        GameSearchSortable::DEVELOPER => "game.developer",
+        GameSearchSortable::PUBLISHER => "game.publisher",
+        GameSearchSortable::SERIES => "game.series",
+        GameSearchSortable::PLATFORM => "game.platformName",
+        GameSearchSortable::DATEADDED => "game.dateAdded",
+        GameSearchSortable::DATEMODIFIED => "game.dateModified",
+        GameSearchSortable::RELEASEDATE => "game.releaseDate",
+        GameSearchSortable::LASTPLAYED => "game.lastPlayed",
+        GameSearchSortable::PLAYTIME => "game.playtime",
         GameSearchSortable::CUSTOM => "RowNum",
         _ => "unknown",
     };
@@ -636,12 +654,21 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut keyset = vec![];
-    println!("{}", format_query(&query, params.clone()));
+    debug_println!("{}", format_query(&query, params.clone()));
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
         let order_val = match search.order.column {
-            GameSearchSortable::CUSTOM => row.get::<_, i64>(1)?.to_string(),
-            _ => row.get::<_, String>(1)?
+            GameSearchSortable::PLAYTIME |
+            GameSearchSortable::CUSTOM => 
+                match row.get::<_, Option<i64>>(1)? {
+                    Some(value) => value.to_string(),
+                    None => "0".to_string(), // Handle NULL as you see fit
+                },
+            _ => 
+                match row.get::<_, Option<String>>(1)? {
+                    Some(value) => value,
+                    None => "".to_string(), // Handle NULL as you see fit
+                },
         };
         Ok(PageTuple {
             id: row.get(0)?,
@@ -674,7 +701,7 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
             + &selection;
     }
     let (query, params) = build_search_query(search, &selection);
-    println!("{}", format_query(&query, params.clone()));
+    debug_println!("{}", format_query(&query, params.clone()));
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -712,7 +739,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     }
 
     let (query, params) = build_search_query(search, &selection);
-    println!("{}", format_query(&query, params.clone()));
+    debug_println!("{}", format_query(&query, params.clone()));
 
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
@@ -827,6 +854,15 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
     // Ordering
     let order_column = match search.order.column {
         GameSearchSortable::TITLE => "game.title",
+        GameSearchSortable::DEVELOPER => "game.developer",
+        GameSearchSortable::PUBLISHER => "game.publisher",
+        GameSearchSortable::SERIES => "game.series",
+        GameSearchSortable::PLATFORM => "game.platformName",
+        GameSearchSortable::DATEADDED => "game.dateAdded",
+        GameSearchSortable::DATEMODIFIED => "game.dateModified",
+        GameSearchSortable::RELEASEDATE => "game.releaseDate",
+        GameSearchSortable::LASTPLAYED => "game.lastPlayed",
+        GameSearchSortable::PLAYTIME => "game.playtime",
         GameSearchSortable::CUSTOM => "OrderedIDs.RowNum",
         _ => "unknown",
     };
@@ -955,8 +991,6 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         };
 
     // exact whitelist
-    exact_whitelist_clause!(add_clause, "id", &filter.exact_whitelist.id);
-    exact_whitelist_clause!(add_clause, "id", &filter.whitelist.id);
     exact_whitelist_clause!(add_clause, "library", &filter.exact_whitelist.library);
     exact_whitelist_clause!(add_clause, "developer", &filter.exact_whitelist.developer);
     exact_whitelist_clause!(add_clause, "publisher", &filter.exact_whitelist.publisher);
@@ -973,8 +1007,6 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     exact_whitelist_clause!(add_clause, "language", &filter.exact_whitelist.language);
 
     // exact blacklist
-    exact_blacklist_clause!(add_clause, "id", &filter.exact_blacklist.id);
-    exact_blacklist_clause!(add_clause, "id", &filter.blacklist.id);
     exact_blacklist_clause!(add_clause, "library", &filter.exact_blacklist.library);
     exact_blacklist_clause!(add_clause, "developer", &filter.exact_blacklist.developer);
     exact_blacklist_clause!(add_clause, "publisher", &filter.exact_blacklist.publisher);
@@ -1021,6 +1053,25 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         &filter.blacklist.original_description
     );
     blacklist_clause!(add_clause, "language", &filter.blacklist.language);
+
+    let mut id_clause =
+        |values: &Option<Vec<String>>, blacklist: bool| {
+            if let Some(value_list) = values {
+                // All game ids are exact, AND would be impossible to satisfy, treat as OR, always
+                let comparator = match blacklist {
+                    true => "NOT IN",
+                    false => "IN"
+                };
+                where_clauses.push(format!("(game.id {} rarray(?) OR game.id {} (SELECT id FROM game_redirect WHERE sourceId IN rarray(?)))", comparator, comparator));
+                params.push(SearchParam::StringVec(value_list.clone()));
+                params.push(SearchParam::StringVec(value_list.clone()));
+            }
+        };
+    
+    id_clause(&filter.exact_whitelist.id, false);
+    id_clause(&filter.whitelist.id, false);
+    id_clause(&filter.exact_blacklist.id, true);
+    id_clause(&filter.blacklist.id, true);
 
     let mut add_tagged_clause =
         |tag_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
@@ -1587,6 +1638,9 @@ pub fn new_custom_id_order(conn: &Connection, custom_id_order: Vec<String>) -> R
     Ok(())
 }
 
+// Dumb replacment string to denote an 'empty' value
+const REPLACEMENT: &str = "UIOWHDYUAWDGBAWYUODIGAWYUIDIAWGHDYUI8AWGHDUIAWDHNAWUIODHJNAWIOUDHJNAWOUIDAJNWMLDK";
+
 pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Result<()> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
@@ -1634,7 +1688,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
         }
     }
 
-    println!("filtering {} tags", tags.len());
+    debug_println!("filtering {} tags", tags.len());
 
     conn.execute("DELETE FROM tag_filter_index", ())?; // Empty existing index
 
@@ -1644,7 +1698,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-    println!("{}", format_query(&query, params.clone()));
+        debug_println!("{}", format_query(&query, params.clone()));
 
     let mut stmt = conn.prepare(query.as_str())?;
     stmt.execute(params_as_refs.as_slice())?;
@@ -1674,7 +1728,6 @@ pub fn parse_user_input(input: &str) -> GameSearch {
     let mut working_value = String::new();
     let mut working_key_char: Option<KeyChar> = None;
     let mut negative = false;
-    let mut exact = false;
 
     for mut token in input.split_whitespace() {
         // Value on the same scope as token to append to
@@ -1688,14 +1741,6 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 negative = true;
 
                 token = token.strip_prefix("-").unwrap();
-            }
-
-            if token.len() > 1 {
-                let ch = token.chars().next().unwrap();
-                if ch == '=' {
-                    token = token.strip_prefix('=').unwrap();
-                    exact = true;
-                }
             }
 
             if token.len() > 1 {
@@ -1716,15 +1761,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                         token = token.strip_prefix('@').unwrap();
                         working_key = "developer".to_owned();
                     }
-                    _ => {
-                        // No special token, check if we're preceding a key
-                        if !token.contains(':') && exact {
-                            // No key, is generic, do not use exact
-                            exact = false;
-                            _t = "=".to_owned() + token;
-                            token = &_t;
-                        }
-                    }
+                    _ => ()
                 }
             }
         }
@@ -1762,6 +1799,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             // No working input yet, check for key
             working_key_char = earliest_key_char(token);
 
+            // Extract the working key
             if let Some(kc) = working_key_char.clone() {
                 let s: String = kc.into();
                 let token_parts = token.split(&s).collect::<Vec<&str>>();
@@ -1776,10 +1814,18 @@ pub fn parse_user_input(input: &str) -> GameSearch {
 
             // Single value, must be value
             if token.starts_with('"') && token.ends_with('"') {
-                // Fully inside quotes
-                token = token.strip_prefix('"').unwrap();
-                token = token.strip_suffix('"').unwrap();
-                working_value = token.to_owned();
+                // Special case for empty value
+                if token.len() == 2 {
+                    if working_key != "" {
+                        // Has a key, must be a deliberately empty value
+                        working_value = REPLACEMENT.to_owned();
+                    }
+                } else {
+                    // Fully inside quotes
+                    token = token.strip_prefix('"').unwrap_or_else(|| "");
+                    token = token.strip_suffix('"').unwrap_or_else(|| "");
+                    working_value = token.to_owned();
+                }
             } else {
                 if token.starts_with('"') {
                     // Starts quotes
@@ -1787,19 +1833,36 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     capturing_quotes = true;
                     working_value = token.to_owned();
                     continue;
-                } else {
-                    // Not quoted
-                    working_value = token.to_owned();
                 }
+                working_value = token.to_owned();
             }
         }
 
         if working_value != "" {
+            let mut exact = false;
+            if working_key != "" {
+                if working_value == REPLACEMENT {
+                    // Is an empty replacement value, swap it back in now we know it exists
+                    working_value = "".to_owned();
+                    exact = true;
+                } else {
+                    if let Some(kc) = &working_key_char {
+                        match kc {
+                            KeyChar::EQUALS => {
+                                exact = true
+                            }
+                            _ => ()
+                        }
+                    }
+                }
+            }
+
             debug_println!(
-                "key: {}, value: {}, negative: {}",
+                "key: {}, value: {}, negative: {}, exact: {}",
                 working_key,
                 working_value,
-                negative
+                negative,
+                exact,
             );
 
             let mut list = match (negative, exact) {
@@ -1811,6 +1874,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             let value = working_value.clone();
             let mut processed = false;
 
+            // Handle numerical comparisons
             if let Some(kc) = &working_key_char {
                 processed = true;
                 match kc {
@@ -1822,17 +1886,17 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.lower_than.tags = Some(value),
                             "platforms" => filter.lower_than.platforms = Some(value),
-                            "dateadded" => {
+                            "dateadded" | "da" => {
                                 filter.lower_than.date_added = Some(working_value.clone())
                             }
-                            "datemodified" => {
+                            "datemodified" |"dm" => {
                                 filter.lower_than.date_modified = Some(working_value.clone())
                             }
-                            "releasedate" => {
+                            "releasedate" | "rd" => {
                                 filter.lower_than.release_date = Some(working_value.clone())
                             }
-                            "gamedata" => filter.lower_than.game_data = Some(value),
-                            "addapps" => filter.lower_than.add_apps = Some(value),
+                            "gamedata" | "gd" => filter.lower_than.game_data = Some(value),
+                            "addapps" | "aa" => filter.lower_than.add_apps = Some(value),
                             _ => {
                                 processed = false;
                             }
@@ -1843,17 +1907,17 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.higher_than.tags = Some(value),
                             "platforms" => filter.higher_than.platforms = Some(value),
-                            "dateadded" => {
+                            "dateadded" | "da" => {
                                 filter.higher_than.date_added = Some(working_value.clone())
                             }
-                            "datemodified" => {
+                            "datemodified" | "dm" => {
                                 filter.higher_than.date_modified = Some(working_value.clone())
                             }
-                            "releasedate" => {
+                            "releasedate" | "rd" => {
                                 filter.higher_than.release_date = Some(working_value.clone())
                             }
-                            "gamedata" => filter.higher_than.game_data = Some(value),
-                            "addapps" => filter.higher_than.add_apps = Some(value),
+                            "gamedata" | "gd" => filter.higher_than.game_data = Some(value),
+                            "addapps" | "aa" => filter.higher_than.add_apps = Some(value),
                             _ => {
                                 processed = false;
                             }
@@ -1864,15 +1928,15 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.equal_to.tags = Some(value),
                             "platforms" => filter.equal_to.platforms = Some(value),
-                            "dateadded" => filter.equal_to.date_added = Some(working_value.clone()),
-                            "datemodified" => {
+                            "dateadded" | "da" => filter.equal_to.date_added = Some(working_value.clone()),
+                            "datemodified" | "dm" => {
                                 filter.equal_to.date_modified = Some(working_value.clone())
                             }
-                            "releasedate" => {
+                            "releasedate" | "rd" => {
                                 filter.equal_to.release_date = Some(working_value.clone())
                             }
-                            "gamedata" => filter.equal_to.game_data = Some(value),
-                            "addapps" => filter.equal_to.add_apps = Some(value),
+                            "gamedata" | "gd" => filter.equal_to.game_data = Some(value),
+                            "addapps" | "aa" => filter.equal_to.add_apps = Some(value),
                             _ => {
                                 processed = false;
                             }
@@ -1881,7 +1945,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 }
             }
 
-            // Was not caught by the special matchers, assume it either fits a key or a generic
+            // Handle generics and string matchers
             if !processed {
                 // Has a complete value, add to filter
                 match working_key.to_lowercase().as_str() {
@@ -1897,11 +1961,11 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     "status" => list.status.push(value),
                     "note" | "notes" => list.notes.push(value),
                     "src" | "source" => list.source.push(value),
-                    "desc" | "description" | "originaldescription" => {
+                    "od" | "desc" | "description" | "originaldescription" => {
                         list.original_description.push(value)
                     }
                     "lang" | "language" => list.language.push(value),
-                    "path" | "app" | "applicationpath" => list.application_path.push(value),
+                    "ap" | "path" | "app" | "applicationpath" => list.application_path.push(value),
                     "lc" | "launchcommand" => list.launch_command.push(value),
                     _ => match &working_key_char {
                         Some(kc) => {
@@ -1922,7 +1986,6 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             }
 
             negative = false;
-            exact = false;
             working_value.clear();
             working_key.clear();
         }

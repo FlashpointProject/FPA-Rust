@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::atomic::AtomicBool};
 use game::{PartialGame, search::{GameSearch, PageTuple}, Game, AdditionalApp};
 use game_data::{GameData, PartialGameData};
 use platform::PlatformAppPath;
@@ -25,6 +25,8 @@ pub mod update;
 #[cfg(feature = "napi")]
 #[macro_use]
 extern crate napi_derive;
+
+static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub struct FlashpointArchive {
     pool: Option<Pool<SqliteConnectionManager>>
@@ -63,21 +65,21 @@ impl FlashpointArchive {
 
     pub async fn search_games(&self, search: &GameSearch) -> Result<Vec<game::Game>> {
         with_connection!(&self.pool, |conn| {
-            println!("Getting search page");
+            debug_println!("Getting search page");
             game::search::search(conn, search).context(error::SqliteSnafu)
         })
     }
 
     pub async fn search_games_index(&self, search: &mut GameSearch) -> Result<Vec<PageTuple>> {
         with_connection!(&self.pool, |conn| {
-            println!("Getting search index");
+            debug_println!("Getting search index");
             game::search::search_index(conn, search).context(error::SqliteSnafu)
         })
     }
 
     pub async fn search_games_total(&self, search: &GameSearch) -> Result<i64> {
         with_connection!(&self.pool, |conn| {
-            println!("Getting search total");
+            debug_println!("Getting search total");
             game::search::search_count(conn, search).context(error::SqliteSnafu)
         })
     }
@@ -412,6 +414,7 @@ impl FlashpointArchive {
             update::apply_games(conn, games_res)
         })
     }
+
     pub async fn update_delete_games(&self, games_res: &RemoteDeletedGamesRes) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
             update::delete_games(conn, games_res)
@@ -456,9 +459,8 @@ macro_rules! with_transaction {
                 let tx = conn.transaction().context(error::SqliteSnafu)?;
                 let res = $body(&tx);
                 if res.is_ok() {
-                    println!("Applying transaction");
                     tx.commit().context(error::SqliteSnafu)?;
-                    println!("Applied transaction");
+                    debug_println!("Applied transaction");
                 }
                 res
             },
@@ -467,9 +469,21 @@ macro_rules! with_transaction {
     };
 }
 
+pub fn enable_debug() {
+    DEBUG_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn disable_debug() {
+    DEBUG_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn debug_enabled() -> bool {
+    DEBUG_ENABLED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 #[macro_export]
 macro_rules! debug_println {
-    ($($arg:tt)*) => (if ::std::cfg!(debug_assertions) { ::std::println!($($arg)*); })
+    ($($arg:tt)*) => (if $crate::debug_enabled() { ::std::println!($($arg)*); })
 }
 
 #[cfg(test)]
@@ -633,6 +647,11 @@ mod tests {
         game::search::parse_user_input("test");
         game::search::parse_user_input(r#"tag:"sonic""#);
         game::search::parse_user_input(r#"o_%$ dev:"san" disk t:7 potato"#);
+        let s = game::search::parse_user_input(r#"title:"" -developer:"""#);
+        assert!(s.filter.exact_whitelist.title.is_some());
+        assert_eq!(s.filter.exact_whitelist.title.unwrap()[0], "");
+        assert!(s.filter.exact_blacklist.developer.is_some());
+        assert_eq!(s.filter.exact_blacklist.developer.unwrap()[0], "");
     }
 
     #[tokio::test]
@@ -775,10 +794,10 @@ mod tests {
 
     #[tokio::test]
     async fn parse_user_exact_search_input() {
-        let input = r#"=!Flash -=publisher:Newgrounds =sonic"#;
+        let input = r#"!Flash -publisher=Newgrounds =sonic"#;
         let search = game::search::parse_user_input(input);
-        assert!(search.filter.exact_whitelist.platforms.is_some());
-        assert_eq!(search.filter.exact_whitelist.platforms.unwrap()[0], "Flash");
+        assert!(search.filter.whitelist.platforms.is_some());
+        assert_eq!(search.filter.whitelist.platforms.unwrap()[0], "Flash");
         assert!(search.filter.exact_blacklist.publisher.is_some());
         assert_eq!(search.filter.exact_blacklist.publisher.unwrap()[0], "Newgrounds");
         assert!(search.filter.whitelist.generic.is_some());

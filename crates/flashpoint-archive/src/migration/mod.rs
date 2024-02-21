@@ -212,6 +212,21 @@ pub fn get() -> Migrations<'static> {
                 "id" VARCHAR NOT NULL
             );
             "#),
+        M::up(r#"
+            CREATE TABLE IF NOT EXISTS "game_redirect" (
+                "id" VARCHAR NOT NULL,
+                "sourceId" VARCHAR NOT NULL,
+                "dateAdded" datetime,
+                PRIMARY KEY("id", "sourceId")
+            );
+            "#),
+        // Add no case collation to the platform name
+        M::up(r#"
+            ALTER TABLE "game" RENAME COLUMN "platformName" TO "platformName_old";
+            ALTER TABLE "game" ADD COLUMN "platformName" varchar COLLATE NOCASE;
+            UPDATE "game" SET "platformName" = "game"."platformName_old";
+            ALTER TABLE "game" DROP COLUMN "platformName_old";
+        "#),
     ]);
 
     migrations
