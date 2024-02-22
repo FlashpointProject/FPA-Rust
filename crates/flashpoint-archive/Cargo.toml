@@ -1,6 +1,6 @@
 [package]
 name = "flashpoint-archive"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "MIT"
 keywords = ["webgames", "archive", "flashpoint"]
@@ -8,7 +8,7 @@ exclude = ["benches/"]
 readme = "README.md"
 description = "Library to access Flashpoint Archive's database and misc related functions"
 homepage = "https://flashpointarchive.org/"
-repository = "https://github.com/FlashpointArchive/FPA-Rust/"
+repository = "https://github.com/FlashpointProject/FPA-Rust/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

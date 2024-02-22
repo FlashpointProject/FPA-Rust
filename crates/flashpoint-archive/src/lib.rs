@@ -762,6 +762,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_and_save_game_data() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let partial_game = game::PartialGame {
+            title: Some(String::from("Test Game")),
+            tags: Some(vec!["Action"].into()),
+            ..game::PartialGame::default()
+        };
+        let game_create_res = flashpoint.create_game(&partial_game).await;
+        assert!(game_create_res.is_ok());
+        let game = game_create_res.unwrap();
+        let game_data = PartialGameData { 
+            id: None,
+            game_id: game.id,
+            title: Some("Test".to_owned()),
+            date_added: Some("2023-01-01T01:01:01.000".to_owned()),
+            sha256: Some("123".to_owned()),
+            crc32: Some(0),
+            present_on_disk: Some(false),
+            path: None,
+            size: Some(123),
+            parameters: None,
+            application_path: Some("Test".to_owned()),
+            launch_command: Some("Test".to_owned())
+        };
+
+        let game_data_res = flashpoint.create_game_data(&game_data).await;
+        assert!(game_data_res.is_ok());
+        let mut gd = game_data_res.unwrap();
+        gd.path = Some("Test".to_owned());
+        let save_res = flashpoint.save_game_data(&gd.into()).await;
+        assert!(save_res.is_ok());
+        let new_gd = save_res.unwrap();
+        assert_eq!(new_gd.path.unwrap(), "Test");
+    }
+
+    #[tokio::test]
     async fn parse_user_search_input() {
         let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario"#;
         let search = game::search::parse_user_input(input);

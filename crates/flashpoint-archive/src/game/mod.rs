@@ -778,9 +778,9 @@ pub fn create_game_data(conn: &Connection, partial: &PartialGameData) -> Result<
 pub fn save_game_data(conn: &Connection, partial: &PartialGameData) -> Result<GameData> {
     let game_data: GameData = partial.into();
     
-    let mut stmt = conn.prepare("UPDATE game_data (gameId, title, dateAdded, sha256, crc32, presentOnDisk
-        , path, size, parameters, applicationPath, launchCommand)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) WHERE id = ?")?;
+    let mut stmt = conn.prepare("UPDATE game_data
+        SET gameId = ?, title = ?, dateAdded = ?, sha256 = ?, crc32 = ?, presentOnDisk = ?,
+        path = ?, size = ?, parameters = ?, applicationPath = ?, launchCommand = ? WHERE id = ?")?;
     stmt.execute(params![
         &game_data.game_id,
         &game_data.title,

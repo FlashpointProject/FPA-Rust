@@ -36,6 +36,25 @@ pub struct PartialGameData {
     pub launch_command: Option<String>,
 }
 
+impl From<GameData> for PartialGameData {
+    fn from(value: GameData) -> Self {
+        PartialGameData {
+            id: Some(value.id),
+            game_id: value.game_id,
+            title: Some(value.title),
+            date_added: Some(value.date_added),
+            sha256: Some(value.sha256),
+            crc32: Some(value.crc32),
+            present_on_disk: Some(value.present_on_disk),
+            path: value.path,
+            size: Some(value.size),
+            parameters: value.parameters,
+            application_path: Some(value.application_path),
+            launch_command: Some(value.launch_command),
+        }
+    }
+}
+
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     let mut stmt = conn.prepare("DELETE FROM game_data WHERE id = ?")?;
     stmt.execute(params![id])?;
