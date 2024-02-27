@@ -22,6 +22,10 @@ pub enum Error {
         date: String,
         source: ParseError,
     },
+    #[snafu(display("Error generating content tree"))]
+    ContentTreeError,
+    #[snafu(display("Error copying folder"))]
+    CopyFolderError,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

@@ -13,6 +13,7 @@ use chrono::Utc;
 mod error;
 use error::{Error, Result};
 use update::{RemoteCategory, RemoteDeletedGamesRes, RemoteGamesRes, RemotePlatform, RemoteTag};
+use util::ContentTreeNode;
 
 pub mod game;
 pub mod game_data;
@@ -21,6 +22,7 @@ pub mod platform;
 pub mod tag;
 pub mod tag_category;
 pub mod update;
+pub mod util;
 
 #[cfg(feature = "napi")]
 #[macro_use]
@@ -433,6 +435,14 @@ fn optimize_database(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute("REINDEX", ())?;
     conn.execute("VACUUM", ())?;
     Ok(())
+}
+
+pub fn generate_content_tree(root: &str) -> Result<ContentTreeNode> {
+    util::gen_content_tree(root).map_err(|_| snafu::NoneError).context(error::ContentTreeSnafu)
+}
+
+pub fn copy_folder(src: &str, dest: &str) -> Result<u64> {
+    util::copy_folder(src, dest).map_err(|_| snafu::NoneError).context(error::CopyFolderSnafu)
 }
 
 #[macro_export]
