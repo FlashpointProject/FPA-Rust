@@ -227,6 +227,17 @@ pub fn get() -> Migrations<'static> {
             UPDATE "game" SET "platformName" = "game"."platformName_old";
             ALTER TABLE "game" DROP COLUMN "platformName_old";
         "#),
+        // Make tag description not nullable
+        M::up(r#"
+            ALTER TABLE "tag" RENAME COLUMN "description" TO "description_old";
+            ALTER TABLE "tag" ADD COLUMN "description" varchar NOT NULL DEFAULT '';
+            UPDATE "tag" SET "description" = COALESCE(description_old, '');
+            ALTER TABLE "tag" DROP COLUMN "description_old";
+        "#),
+        M::up(r#"
+        CREATE INDEX IF NOT EXISTS "IDX_redirect_sourceId" ON "game_redirect" (
+            "sourceId"
+        );"#),
     ]);
 
     migrations

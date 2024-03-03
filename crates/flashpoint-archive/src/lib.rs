@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::atomic::AtomicBool};
-use game::{PartialGame, search::{GameSearch, PageTuple}, Game, AdditionalApp};
+use game::{search::{GameSearch, PageTuple}, AdditionalApp, Game, GameRedirect, PartialGame};
 use game_data::{GameData, PartialGameData};
 use platform::PlatformAppPath;
 use r2d2::Pool;
@@ -393,6 +393,24 @@ impl FlashpointArchive {
         })
     }
 
+    pub async fn find_game_redirects(&self) -> Result<Vec<GameRedirect>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_redirects(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn add_game_redirect(&self, src_id: &str, dest_id: &str) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            game::add_redirect(conn, src_id, dest_id).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn delete_game_redirect(&self, src_id: &str, dest_id: &str) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            game::delete_redirect(conn, src_id, dest_id).context(error::SqliteSnafu)
+        })
+    }
+
     pub async fn update_apply_categories(&self, cats: Vec<RemoteCategory>) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
             update::apply_categories(conn, cats)
@@ -420,6 +438,12 @@ impl FlashpointArchive {
     pub async fn update_delete_games(&self, games_res: &RemoteDeletedGamesRes) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
             update::delete_games(conn, games_res)
+        })
+    }
+
+    pub async fn update_apply_redirects(&self, redirects_res: Vec<GameRedirect>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            update::apply_redirects(conn, redirects_res)
         })
     }
 
@@ -697,6 +721,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn game_redirects() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let partial_game = game::PartialGame {
+            title: Some(String::from("Test Game")),
+            tags: Some(vec!["Action"].into()),
+            ..game::PartialGame::default()
+        };
+        let result = flashpoint.create_game(&partial_game).await;
+        assert!(result.is_ok());
+        let game = result.unwrap();
+
+        let create_redirect_res = flashpoint.add_game_redirect("test", &game.id).await;
+        assert!(create_redirect_res.is_ok());
+
+        // Find game redirect
+        let found_game_res = flashpoint.find_game("test").await;
+        assert!(found_game_res.is_ok());
+        assert!(found_game_res.unwrap().is_some());
+
+        // ID search redirect
+        let mut search = GameSearch::default();
+        search.filter.exact_whitelist.id = Some(vec!["test".to_owned()]);
+        let search_res = flashpoint.search_games(&search).await;
+        assert!(search_res.is_ok());
+        assert_eq!(search_res.unwrap().len(), 1);
+
+        // Find redirects
+        let found_redirs = flashpoint.find_game_redirects().await;
+        assert!(found_redirs.is_ok());
+        assert_eq!(found_redirs.unwrap().len(), 1);
+
+        let remove_redirect_res = flashpoint.delete_game_redirect("test", &game.id).await;
+        assert!(remove_redirect_res.is_ok());
+
+        let found_redirs2 = flashpoint.find_game_redirects().await;
+        assert!(found_redirs2.is_ok());
+        assert_eq!(found_redirs2.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
     async fn tag_categories() {
         let mut flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(":memory:");
@@ -925,6 +991,26 @@ mod tests {
         let modded_game = modded_game_opt.unwrap();
         assert_eq!(modded_game.tags.len(), 1);
         assert_eq!(modded_game.tags[0], "Adventure");
+    }
+
+    #[tokio::test]
+    async fn find_tag() {
+        let mut flashpoint = FlashpointArchive::new();
+        assert!(flashpoint.load_database(":memory:").is_ok());
+        let partial = PartialGame {
+            title: Some("test".to_owned()),
+            tags: Some(vec!["Action"].into()),
+            ..Default::default()
+        };
+        let new_game_res = flashpoint.create_game(&partial).await;
+        assert!(new_game_res.is_ok());
+        let tag_res = flashpoint.find_tag("Action").await;
+        assert!(tag_res.is_ok());
+        let tag_opt = tag_res.unwrap();
+        assert!(tag_opt.is_some());
+        let tag_id_res = flashpoint.find_tag_by_id(tag_opt.unwrap().id).await;
+        assert!(tag_id_res.is_ok());
+        assert!(tag_id_res.unwrap().is_some());
     }
 
     #[tokio::test]

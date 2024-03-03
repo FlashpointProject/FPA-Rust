@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, ToSql};
 use snafu::ResultExt;
 use uuid::Uuid;
 
+use crate::game::GameRedirect;
 use crate::{error, game, tag, tag_category};
 use crate::error::Result;
 use crate::game::search::mark_index_dirty;
@@ -448,5 +449,13 @@ pub fn delete_games(conn: &Connection, games_res: &RemoteDeletedGamesRes) -> Res
     conn.execute("DELETE FROM additional_app WHERE parentGameId IN rarray(?)", params![ids]).context(error::SqliteSnafu)?;
     conn.execute("DELETE FROM game WHERE id IN rarray(?)", params![ids]).context(error::SqliteSnafu)?;
 
+    Ok(())
+}
+
+pub fn apply_redirects(conn: &Connection, redirects: Vec<GameRedirect>) -> Result<()> {
+    let mut stmt = conn.prepare("INSERT INTO OR IGNORE game_redirect (source_id, id) VALUES (?, ?)").context(error::SqliteSnafu)?;
+    for r in redirects.iter() {
+        stmt.execute(params![r.source_id, r.dest_id]).context(error::SqliteSnafu)?;
+    }
     Ok(())
 }

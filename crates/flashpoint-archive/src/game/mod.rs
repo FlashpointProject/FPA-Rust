@@ -293,6 +293,14 @@ pub struct PartialGame {
     pub add_apps: Option<Vec<AdditionalApp>>,
 }
 
+#[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct GameRedirect {
+    pub source_id: String,
+    pub dest_id: String,
+}
+
 pub fn find_all_ids(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT id FROM game")?;
 
@@ -311,11 +319,11 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
         tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
         originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
         activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter \
-        FROM game WHERE id = ?",
+        FROM game WHERE id = COALESCE((SELECT id FROM game_redirect WHERE sourceId = ?), ?)",
     )?;
 
     let game_result = stmt
-        .query_row(params![id], |row| {
+        .query_row(params![id, id], |row| {
             Ok(Game {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -970,6 +978,32 @@ pub fn force_active_data_most_recent(conn: &Connection) -> Result<()> {
     conn.execute("UPDATE game
     SET activeDataId = (SELECT game_data.id FROM game_data WHERE game.id = game_data.gameId ORDER BY game_data.dateAdded DESC LIMIT 1)
     WHERE game.activeDataId = -1", ())?;
+    Ok(())
+}
+
+pub fn find_redirects(conn: &Connection) -> Result<Vec<GameRedirect>> {
+    let mut redirects = vec![];
+
+    let mut stmt = conn.prepare("SELECT sourceId, id, dateAdded FROM game_redirect")?;
+    let redirects_iter = stmt.query_map((), |row| Ok(GameRedirect{
+        source_id: row.get(0)?,
+        dest_id: row.get(1)?
+    }))?;
+
+    for r in redirects_iter {
+        redirects.push(r?);
+    }
+
+    Ok(redirects)
+}
+
+pub fn add_redirect(conn: &Connection, src_id: &str, dest_id: &str) -> Result<()> {
+    conn.execute("INSERT OR IGNORE INTO game_redirect (sourceId, id) VALUES (?, ?)", params![src_id, dest_id])?;
+    Ok(())
+}
+
+pub fn delete_redirect(conn: &Connection, src_id: &str, dest_id: &str) -> Result<()> {
+    conn.execute("DELETE FROM game_redirect WHERE sourceId = ? AND id = ?", params![src_id, dest_id])?;
     Ok(())
 }
 
