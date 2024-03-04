@@ -654,7 +654,7 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut keyset = vec![];
-    debug_println!("{}", format_query(&query, params.clone()));
+    debug_println!(" search index query - {}", format_query(&query, params.clone()));
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
         let order_val = match search.order.column {
@@ -701,7 +701,7 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
             + &selection;
     }
     let (query, params) = build_search_query(search, &selection);
-    debug_println!("{}", format_query(&query, params.clone()));
+    debug_println!(" search count query - {}", format_query(&query, params.clone()));
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -739,7 +739,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     }
 
     let (query, params) = build_search_query(search, &selection);
-    debug_println!("{}", format_query(&query, params.clone()));
+    debug_println!(" search query - {}", format_query(&query, params.clone()));
 
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
@@ -1688,7 +1688,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
         }
     }
 
-    debug_println!("filtering {} tags", tags.len());
+    debug_println!(" filtering {} tags", tags.len());
 
     conn.execute("DELETE FROM tag_filter_index", ())?; // Empty existing index
 
@@ -1698,7 +1698,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-        debug_println!("{}", format_query(&query, params.clone()));
+        debug_println!(" new filtered tag query - {}", format_query(&query, params.clone()));
 
     let mut stmt = conn.prepare(query.as_str())?;
     stmt.execute(params_as_refs.as_slice())?;

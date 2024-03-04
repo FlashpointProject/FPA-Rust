@@ -997,7 +997,7 @@ pub fn find_redirects(conn: &Connection) -> Result<Vec<GameRedirect>> {
     Ok(redirects)
 }
 
-pub fn add_redirect(conn: &Connection, src_id: &str, dest_id: &str) -> Result<()> {
+pub fn create_redirect(conn: &Connection, src_id: &str, dest_id: &str) -> Result<()> {
     conn.execute("INSERT OR IGNORE INTO game_redirect (sourceId, id) VALUES (?, ?)", params![src_id, dest_id])?;
     Ok(())
 }

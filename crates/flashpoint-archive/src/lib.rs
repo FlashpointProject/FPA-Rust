@@ -399,9 +399,9 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn add_game_redirect(&self, src_id: &str, dest_id: &str) -> Result<()> {
+    pub async fn create_game_redirect(&self, src_id: &str, dest_id: &str) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
-            game::add_redirect(conn, src_id, dest_id).context(error::SqliteSnafu)
+            game::create_redirect(conn, src_id, dest_id).context(error::SqliteSnafu)
         })
     }
 
@@ -734,7 +734,7 @@ mod tests {
         assert!(result.is_ok());
         let game = result.unwrap();
 
-        let create_redirect_res = flashpoint.add_game_redirect("test", &game.id).await;
+        let create_redirect_res = flashpoint.create_game_redirect("test", &game.id).await;
         assert!(create_redirect_res.is_ok());
 
         // Find game redirect
