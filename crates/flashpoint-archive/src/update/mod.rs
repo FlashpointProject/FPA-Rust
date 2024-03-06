@@ -453,9 +453,10 @@ pub fn delete_games(conn: &Connection, games_res: &RemoteDeletedGamesRes) -> Res
 }
 
 pub fn apply_redirects(conn: &Connection, redirects: Vec<GameRedirect>) -> Result<()> {
-    let mut stmt = conn.prepare("INSERT INTO OR IGNORE game_redirect (source_id, id) VALUES (?, ?)").context(error::SqliteSnafu)?;
+    let mut stmt = conn.prepare("INSERT OR IGNORE INTO game_redirect (source_id, id) VALUES (?, ?)").context(error::SqliteSnafu)?;
     for r in redirects.iter() {
         stmt.execute(params![r.source_id, r.dest_id]).context(error::SqliteSnafu)?;
     }
+    conn.execute("DELETE FROM game_redirect WHERE source_id IN (SELECT id FROM game)", ()).context(error::SqliteSnafu)?;
     Ok(())
 }
