@@ -976,6 +976,18 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     };
                     where_clauses.push(format!("game.{} {} rarray(?)", field_name, comparator));
                     params.push(SearchParam::StringVec(value_list.clone()));
+                } else if blacklist {
+                    let mut inner_clauses = vec![];
+                    for value in value_list {
+                        inner_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+                    }
+                    where_clauses.push(format!("({})", inner_clauses.join(" OR ")));
                 } else {
                     for value in value_list {
                         where_clauses.push(format!("game.{} {} ?", field_name, comparator));
@@ -1111,8 +1123,8 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     }
 
                     // Add query
-                    let tag_query = match filter.match_any {
-                        false => {
+                    let tag_query = match (blacklist, filter.match_any) {
+                        (false, false) => {
                             if inner_tag_queries.len() == 1 {
                                 format!(
                                     "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
@@ -1157,7 +1169,20 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                                 format!("game.id {} ({})", comparator, q)
                             }
                         }
-                        true => format!(
+                        // Let blacklisted tags always use OR comparisons
+                        (true, false) => format!(
+                            "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
+                    SELECT {}Id FROM {}_alias WHERE ({})))",
+                            comparator,
+                            tag_name,
+                            tag_name,
+                            tag_name,
+                            tag_name,
+                            tag_name,
+                            inner_tag_queries.join(" AND ")
+                        ),
+                        (true, true) |
+                        (false, true) => format!(
                             "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                     SELECT {}Id FROM {}_alias WHERE name IN {}))",
                             comparator,
@@ -1196,18 +1221,36 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     (false, false) => "LIKE",
                 };
 
-                for value in value_list {
-                    let mut value_clauses = vec![];
-                    for field_name in field_names.clone() {
-                        value_clauses.push(format!("game.{} {} ?", field_name, comparator));
-                        if exact {
-                            params.push(SearchParam::String(value.clone()));
-                        } else {
-                            let p = format!("%{}%", value);
-                            params.push(SearchParam::String(p));
+                if blacklist {
+                    let mut inner_clauses = vec![];
+                    for value in value_list {
+                        let mut value_clauses = vec![];
+                        for field_name in field_names.clone() {
+                            value_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                            if exact {
+                                params.push(SearchParam::String(value.clone()));
+                            } else {
+                                let p = format!("%{}%", value);
+                                params.push(SearchParam::String(p));
+                            }
                         }
+                        inner_clauses.push(format!("({})", &value_clauses.join(" OR ")));
                     }
-                    where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
+                    where_clauses.push(format!("({})", inner_clauses.join(" OR ")));
+                } else {
+                    for value in value_list {
+                        let mut value_clauses = vec![];
+                        for field_name in field_names.clone() {
+                            value_clauses.push(format!("game.{} {} ?", field_name, comparator));
+                            if exact {
+                                params.push(SearchParam::String(value.clone()));
+                            } else {
+                                let p = format!("%{}%", value);
+                                params.push(SearchParam::String(p));
+                            }
+                        }
+                        where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
+                    }
                 }
             }
         };
@@ -1266,27 +1309,54 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                     (false, false) => "LIKE",
                 };
 
-                for value in value_list {
-                    let mut value_clauses = vec![];
-                    value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
-                    if exact {
-                        params.push(SearchParam::String(value.clone()));
-                    } else {
-                        let p = format!("%{}%", value);
-                        params.push(SearchParam::String(p));
+                if blacklist {
+                    let mut inner_clauses = vec![];
+                    for value in value_list {
+                        let mut value_clauses = vec![];
+                        value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+    
+                        value_clauses.push(format!(
+                            "game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)",
+                            field_name, comparator
+                        ));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+                        inner_clauses.push(format!("({})", &value_clauses.join(" OR ")));
                     }
-
-                    value_clauses.push(format!(
-                        "game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)",
-                        field_name, comparator
-                    ));
-                    if exact {
-                        params.push(SearchParam::String(value.clone()));
-                    } else {
-                        let p = format!("%{}%", value);
-                        params.push(SearchParam::String(p));
+                    where_clauses.push(format!("({})", inner_clauses.join(" OR ")));
+                } else {
+                    for value in value_list {
+                        let mut value_clauses = vec![];
+                        value_clauses.push(format!("game.{} {} ?", game_field_name, comparator));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+    
+                        value_clauses.push(format!(
+                            "game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)",
+                            field_name, comparator
+                        ));
+                        if exact {
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));
+                        }
+                        where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
                     }
-                    where_clauses.push(format!("({})", &value_clauses.join(" OR ")));
                 }
             }
         };
@@ -1568,9 +1638,9 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     );
 
     if filter.match_any {
-        return where_clauses.join(" OR ");
+        where_clauses.join(" OR ")
     } else {
-        return where_clauses.join(" AND ");
+        where_clauses.join(" AND ")
     }
 }
 

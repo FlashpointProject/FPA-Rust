@@ -620,7 +620,9 @@ mod tests {
         search.filter.match_any = false; // AND
 
         // Test total results
+        enable_debug();
         let total_result = flashpoint.search_games_total(&search).await;
+        println!("{:?}", total_result);
         assert!(total_result.is_ok());
         let total = total_result.unwrap();
         assert_eq!(total, 36541);
