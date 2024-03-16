@@ -182,12 +182,13 @@ dependencies = [
 
 [[package]]
 name = "flashpoint-archive"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ebbf0728f6464e4631a49aac690644497e723e4156038b1276b4e0c1ccd6df8"
+checksum = "1457c19a3b8acf773945b795173718240e7dd6dc0940814c499974049dd33e45"
 dependencies = [
  "chrono",
  "fs_extra",
+ "lazy_static",
  "napi",
  "napi-derive",
  "r2d2",
@@ -284,6 +285,12 @@ checksum = "9a1d36f1235bc969acba30b7f5990b864423a6068a10f7c90ae8f0112e3a59d1"
 dependencies = [
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"

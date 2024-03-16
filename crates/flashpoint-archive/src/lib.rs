@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::atomic::AtomicBool};
+use std::{collections::HashMap, sync::{atomic::AtomicBool, mpsc, Arc}};
 use game::{search::{GameSearch, PageTuple}, AdditionalApp, Game, GameRedirect, PartialGame};
 use game_data::{GameData, PartialGameData};
 use platform::PlatformAppPath;
@@ -9,6 +9,8 @@ use snafu::ResultExt;
 use tag::{PartialTag, Tag, TagSuggestion};
 use tag_category::{TagCategory, PartialTagCategory};
 use chrono::Utc;
+use lazy_static::lazy_static;
+use crate::logger::EventManager;
 
 mod error;
 use error::{Error, Result};
@@ -23,12 +25,17 @@ pub mod tag;
 pub mod tag_category;
 pub mod update;
 pub mod util;
+mod logger;
 
 #[cfg(feature = "napi")]
 #[macro_use]
 extern crate napi_derive;
 
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+lazy_static! {
+    static ref LOGGER: Arc<EventManager> = EventManager::new();
+}
 
 pub struct FlashpointArchive {
     pool: Option<Pool<SqliteConnectionManager>>
@@ -454,6 +461,14 @@ impl FlashpointArchive {
     }
 }
 
+pub fn logger_subscribe() -> (crate::logger::SubscriptionId, mpsc::Receiver<crate::logger::LogEvent>) {
+    LOGGER.subscribe()
+}
+
+pub fn logger_unsubscribe(id: crate::logger::SubscriptionId) {
+    LOGGER.unsubscribe(id)
+}
+
 fn optimize_database(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute("ANALYZE", ())?;
     conn.execute("REINDEX", ())?;
@@ -517,7 +532,11 @@ pub fn debug_enabled() -> bool {
 
 #[macro_export]
 macro_rules! debug_println {
-    ($($arg:tt)*) => (if $crate::debug_enabled() { ::std::println!($($arg)*); })
+    ($($arg:tt)*) => (if $crate::debug_enabled() {
+        ::std::println!($($arg)*);
+        let formatted_message = ::std::format!($($arg)*);
+        $crate::LOGGER.dispatch_event(formatted_message);
+    })
 }
 
 #[cfg(test)]
@@ -1091,5 +1110,18 @@ mod tests {
         println!("{}", new_game.platforms);
         assert_eq!(new_game.primary_platform, "Wiggle");
         assert!(new_game.platforms.contains(&"Wiggle".to_string()));
+    }
+
+    #[tokio::test]
+    async fn search_games_random() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(TEST_DATABASE);
+        assert!(create.is_ok());
+
+        let search = crate::game::search::parse_user_input("");
+
+        let random_res = flashpoint.search_games_random(&search, 5).await;
+        assert!(random_res.is_ok());
+        assert_eq!(random_res.unwrap().len(), 5);
     }
 }

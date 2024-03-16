@@ -654,7 +654,7 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut keyset = vec![];
-    debug_println!(" search index query - {}", format_query(&query, params.clone()));
+    debug_println!("search index query - \n{}", format_query(&query, params.clone()));
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
         let order_val = match search.order.column {
@@ -701,7 +701,7 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
             + &selection;
     }
     let (query, params) = build_search_query(search, &selection);
-    debug_println!(" search count query - {}", format_query(&query, params.clone()));
+    debug_println!("search count query - \n{}", format_query(&query, params.clone()));
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -739,7 +739,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     }
 
     let (query, params) = build_search_query(search, &selection);
-    debug_println!(" search query - {}", format_query(&query, params.clone()));
+    debug_println!("search query - \n{}", format_query(&query, params.clone()));
 
     // Convert the parameters array to something rusqlite understands
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
@@ -905,12 +905,10 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
             params.insert(0, SearchParam::String(offset.title.clone()));
             params.insert(0, SearchParam::String(offset.value.clone()));
         }
-
-
     }
 
     // Combine all where clauses
-    if where_clause.len() > 0 {
+    if where_clause.len() > 0 && where_clause != "()" {
         // Offset will begin WHERE itself, otherwise we're ANDing the offset
         let start_clause = match search.offset {
             Some(_) => " AND (",
@@ -1649,16 +1647,30 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
     let mut trim_mode = false;
     let mut indent = 0;
     let mut substitution_iter = substitutions.iter();
+    let mut skip_drop = false;
 
-    for ch in query.chars() {
+    for (idx, ch) in query.chars().enumerate() {
         match ch {
             '(' => {
+                if idx + 1 < query.len() {
+                    let next: String = query.chars().skip(idx + 1).take(1).collect();
+                    if vec![")", "*"].contains(&next.as_str())  {
+                        formatted_query.push(ch);
+                        skip_drop = true;
+                        continue
+                    }
+                }
                 indent += 4;
                 trim_mode = true;
                 formatted_query.push(ch);
                 formatted_query.push('\n');
             }
             ')' => {
+                if skip_drop {
+                    skip_drop = false;
+                    formatted_query.push(ch);
+                    continue
+                }
                 trim_mode = false;
                 indent -= 4;
                 formatted_query.push('\n');
@@ -1758,7 +1770,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
         }
     }
 
-    debug_println!(" filtering {} tags", tags.len());
+    debug_println!("filtering {} tags", tags.len());
 
     conn.execute("DELETE FROM tag_filter_index", ())?; // Empty existing index
 
@@ -1768,7 +1780,7 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-        debug_println!(" new filtered tag query - {}", format_query(&query, params.clone()));
+        debug_println!("new filtered tag query - \n{}", format_query(&query, params.clone()));
 
     let mut stmt = conn.prepare(query.as_str())?;
     stmt.execute(params_as_refs.as_slice())?;

@@ -358,11 +358,12 @@ checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
 
 [[package]]
 name = "flashpoint-archive"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "chrono",
  "criterion",
  "fs_extra",
+ "lazy_static",
  "napi",
  "napi-derive",
  "r2d2",
