@@ -79,10 +79,10 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn search_games_index(&self, search: &mut GameSearch) -> Result<Vec<PageTuple>> {
+    pub async fn search_games_index(&self, search: &mut GameSearch, limit: Option<i64>) -> Result<Vec<PageTuple>> {
         with_connection!(&self.pool, |conn| {
             debug_println!("Getting search index");
-            game::search::search_index(conn, search).context(error::SqliteSnafu)
+            game::search::search_index(conn, search, limit).context(error::SqliteSnafu)
         })
     }
 
@@ -459,6 +459,12 @@ impl FlashpointArchive {
             optimize_database(conn).context(error::SqliteSnafu)
         })
     }
+
+    pub async fn new_custom_id_order(&self, custom_id_order: Vec<String>) -> Result<()> {
+        with_transaction!(&self.pool, |conn| {
+            game::search::new_custom_id_order(conn, custom_id_order).context(error::SqliteSnafu)
+        })
+    }
 }
 
 pub fn logger_subscribe() -> (crate::logger::SubscriptionId, mpsc::Receiver<crate::logger::LogEvent>) {
@@ -628,7 +634,7 @@ mod tests {
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
         let mut inner_filter = game::search::GameFilter::default();
-        // Uncap limit, we want an accurate count
+        // Set page size for index search
         search.limit = 30000;
         // Add the OR to an inner filter
         inner_filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
@@ -654,7 +660,7 @@ mod tests {
         let page_end_game = games.last().unwrap();
 
         // Test index
-        let index_result = flashpoint.search_games_index(&mut search).await;
+        let index_result = flashpoint.search_games_index(&mut search, None).await;
         assert!(index_result.is_ok());
         let index = index_result.unwrap();
         assert_eq!(index.len(), 1);
@@ -694,7 +700,7 @@ mod tests {
         });
         search.filter.exact_whitelist.library = Some(vec!["arcade".to_owned()]);
         search.filter.match_any = false;
-        assert!(flashpoint.search_games_index(&mut search).await.is_ok());
+        assert!(flashpoint.search_games_index(&mut search, None).await.is_ok());
     }
 
     #[tokio::test]
@@ -1123,5 +1129,22 @@ mod tests {
         let random_res = flashpoint.search_games_random(&search, 5).await;
         assert!(random_res.is_ok());
         assert_eq!(random_res.unwrap().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn search_games_index_limited() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(TEST_DATABASE);
+        assert!(create.is_ok());
+
+        let search = &mut GameSearch::default();
+        search.filter.whitelist.title = Some(vec!["Super".into()]);
+        // Set page size
+        search.limit = 200;
+        let index_res = flashpoint.search_games_index(&mut search.clone(), Some(1000)).await;
+        assert!(index_res.is_ok());
+        let index = index_res.unwrap();
+        println!("{:?}", index);
+        assert_eq!(index.len(), 5);
     }
 }

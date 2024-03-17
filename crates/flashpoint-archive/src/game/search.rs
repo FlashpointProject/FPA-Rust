@@ -587,7 +587,7 @@ FROM game";
 
 const TAG_FILTER_INDEX_QUERY: &str = "INSERT INTO tag_filter_index (id) SELECT game.id FROM game";
 
-pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<PageTuple>> {
+pub fn search_index(conn: &Connection, search: &mut GameSearch, limit: Option<i64>) -> Result<Vec<PageTuple>> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
@@ -629,7 +629,7 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch) -> Result<Vec<Pa
         GameSearchDirection::DESC => "DESC",
     };
     let page_size = search.limit;
-    search.limit = 9999999999;
+    search.limit = limit.or_else(|| Some(999999999)).unwrap();
     let selection = match search.order.column {
         GameSearchSortable::CUSTOM => "
         WITH OrderedIDs AS (
@@ -686,9 +686,6 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
-    let mut countable_search = search.clone();
-    // Remove result limit for COUNT queries
-    countable_search.limit = 99999999999;
     let mut selection = COUNT_QUERY.to_owned();
     if search.order.column == GameSearchSortable::CUSTOM {
         selection = "WITH OrderedIDs AS (
