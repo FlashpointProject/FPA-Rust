@@ -970,13 +970,13 @@ pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()
 }
 
 pub fn clear_playtime_tracking(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, play_counter = 0, last_played = NULL")?;
+    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, playCounter = 0, lastPlayed = NULL")?;
     stmt.execute(())?;
     Ok(())
 }
 
 pub fn clear_playtime_tracking_by_id(conn: &Connection, game_id: &str) -> Result<()> {
-    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, play_counter = 0, last_played = NULL WHERE id = ?")?;
+    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, playCounter = 0, lastPlayed = NULL WHERE id = ?")?;
     stmt.execute(params![game_id])?;
     Ok(())
 }
