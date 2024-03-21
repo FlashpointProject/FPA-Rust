@@ -708,11 +708,20 @@ mod tests {
         game::search::parse_user_input("test");
         game::search::parse_user_input(r#"tag:"sonic""#);
         game::search::parse_user_input(r#"o_%$ dev:"san" disk t:7 potato"#);
+
         let s = game::search::parse_user_input(r#"title:"" -developer:"""#);
         assert!(s.filter.exact_whitelist.title.is_some());
         assert_eq!(s.filter.exact_whitelist.title.unwrap()[0], "");
         assert!(s.filter.exact_blacklist.developer.is_some());
         assert_eq!(s.filter.exact_blacklist.developer.unwrap()[0], "");
+
+        let s2 = game::search::parse_user_input(r#"playtime>1h30m tags:3 playcount<3"#);
+        assert!(s2.filter.higher_than.playtime.is_some());
+        assert_eq!(s2.filter.higher_than.playtime.unwrap(), 60 * 90);
+        assert!(s2.filter.equal_to.tags.is_some());
+        assert_eq!(s2.filter.equal_to.tags.unwrap(), 3);
+        assert!(s2.filter.lower_than.playcount.is_some());
+        assert_eq!(s2.filter.lower_than.playcount.unwrap(), 3);
     }
 
     #[tokio::test]

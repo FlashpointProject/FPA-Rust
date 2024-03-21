@@ -1,5 +1,6 @@
 use std::{fmt::Display, rc::Rc};
 
+use fancy_regex::{Captures, Regex};
 use rusqlite::{
     params,
     types::{ToSqlOutput, Value},
@@ -159,6 +160,9 @@ pub struct SizeFilter {
     pub release_date: Option<String>,
     pub game_data: Option<i64>,
     pub add_apps: Option<i64>,
+    pub playtime: Option<i64>,
+    pub playcount: Option<i64>,
+    pub last_played: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -318,6 +322,9 @@ impl Default for SizeFilter {
             release_date: None,
             game_data: None,
             add_apps: None,
+            playtime: None,
+            playcount: None,
+            last_played: None,
         };
     }
 }
@@ -1592,6 +1599,22 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         KeyChar::EQUALS,
         &filter.equal_to.date_modified,
     );
+    
+    add_compare_dates_clause(
+        "lastPlayed",
+        KeyChar::LOWER,
+        &filter.lower_than.last_played,
+    );
+    add_compare_dates_clause(
+        "lastPlayed",
+        KeyChar::HIGHER,
+        &filter.higher_than.last_played,
+    );
+    add_compare_dates_clause(
+        "lastPlayed",
+        KeyChar::EQUALS,
+        &filter.equal_to.last_played,
+    );
 
     let mut add_compare_dates_string_clause =
         |date_field: &str, comparator: KeyChar, filter: &Option<String>| {
@@ -1631,6 +1654,36 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         KeyChar::EQUALS,
         &filter.equal_to.release_date,
     );
+
+    let mut add_compare_counter_clause =
+    |counter: &str, comparator: KeyChar, filter: &Option<i64>| {
+        if let Some(f) = filter {
+            match comparator {
+                KeyChar::MATCHES => (),
+                KeyChar::LOWER => {
+                    where_clauses.push(format!("game.{} < ?", counter));
+                    params.push(SearchParam::Integer64(f.clone()));
+                }
+                KeyChar::HIGHER => {
+                    where_clauses.push(format!("game.{} > ?", counter));
+                    params.push(SearchParam::Integer64(f.clone()));
+                }
+                KeyChar::EQUALS => {
+                    where_clauses.push(format!("game.{} = ?", counter));
+                    params.push(SearchParam::Integer64(f.clone()));
+                }
+            }
+        }
+    };
+
+    add_compare_counter_clause("playtime", KeyChar::LOWER, &filter.lower_than.playtime);
+    add_compare_counter_clause("playtime", KeyChar::HIGHER, &filter.higher_than.playtime);
+    add_compare_counter_clause("playtime", KeyChar::EQUALS, &filter.equal_to.playtime);
+
+    add_compare_counter_clause("playCounter", KeyChar::LOWER, &filter.lower_than.playcount);
+    add_compare_counter_clause("playCounter", KeyChar::HIGHER, &filter.higher_than.playcount);
+    add_compare_counter_clause("playCounter", KeyChar::EQUALS, &filter.equal_to.playcount);
+
 
     if filter.match_any {
         where_clauses.join(" OR ")
@@ -1957,9 +2010,6 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             if let Some(kc) = &working_key_char {
                 processed = true;
                 match kc {
-                    KeyChar::MATCHES => {
-                        processed = false;
-                    }
                     KeyChar::LOWER => {
                         let value = coerce_to_i64(&working_value);
                         match working_key.to_lowercase().as_str() {
@@ -1976,6 +2026,11 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                             }
                             "gamedata" | "gd" => filter.lower_than.game_data = Some(value),
                             "addapps" | "aa" => filter.lower_than.add_apps = Some(value),
+                            "playtime" | "pt" => filter.lower_than.playtime = Some(value),
+                            "playcount" | "pc" => filter.lower_than.playcount = Some(value),
+                            "lastplayed" | "lp" => {
+                                filter.lower_than.last_played = Some(working_value.clone())
+                            },
                             _ => {
                                 processed = false;
                             }
@@ -1997,12 +2052,17 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                             }
                             "gamedata" | "gd" => filter.higher_than.game_data = Some(value),
                             "addapps" | "aa" => filter.higher_than.add_apps = Some(value),
+                            "playtime" | "pt" => filter.higher_than.playtime = Some(value),
+                            "playcount" | "pc" => filter.higher_than.playcount = Some(value),
+                            "lastplayed" | "lp" => {
+                                filter.higher_than.last_played = Some(working_value.clone())
+                            },
                             _ => {
                                 processed = false;
                             }
                         }
                     }
-                    KeyChar::EQUALS => {
+                    KeyChar::MATCHES | KeyChar::EQUALS => {
                         let value = coerce_to_i64(&working_value);
                         match working_key.to_lowercase().as_str() {
                             "tags" => filter.equal_to.tags = Some(value),
@@ -2016,6 +2076,11 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                             }
                             "gamedata" | "gd" => filter.equal_to.game_data = Some(value),
                             "addapps" | "aa" => filter.equal_to.add_apps = Some(value),
+                            "playtime" | "pt" => filter.equal_to.playtime = Some(value),
+                            "playcount" | "pc" => filter.equal_to.playcount = Some(value),
+                            "lastplayed" | "lp" => {
+                                filter.equal_to.last_played = Some(working_value.clone())
+                            },
                             _ => {
                                 processed = false;
                             }
@@ -2122,8 +2187,41 @@ fn earliest_key_char(s: &str) -> Option<KeyChar> {
 }
 
 fn coerce_to_i64(input: &str) -> i64 {
-    match input.trim().parse::<i64>() {
-        Ok(num) => num,
-        _ => 0,
+    // Substitute known replacements
+    /* d - Seconds in a day
+     * h - Seconds in an hour
+     * m - seconds in a minute
+     */
+
+    // Insert '+' between consecutive time values (e.g., "1h30m" becomes "1h+30m")
+    let insert_plus_re = Regex::new(r"(\d+)([yMwdhm])(?=\d)").unwrap();
+    let mut processed_input = insert_plus_re.replace_all(&input, |caps: &Captures| {
+        format!("{}{}+", &caps[1], &caps[2])
+    }).to_string();
+
+    let time_units = vec![
+        ("y", 31_536_000), // years
+        ("M", 2_592_000),  // months
+        ("w", 604_800),    // weeks
+        ("d", 86_400),     // days
+        ("h", 3_600),      // hours
+        ("m", 60),         // minutes
+        ("s", 1),          // seconds
+    ];
+
+    // Replace each unit eg 30m with their seconds integer value e.g 1800
+    for (unit, seconds) in time_units {
+        let pattern = format!(r"(\d+){}", unit);
+        let re = Regex::new(&pattern).unwrap();
+        processed_input = re.replace_all(&processed_input, |caps: &Captures| {
+            let time_value: i64 = caps[1].parse().unwrap_or(0); // Convert the captured group to i64
+            (time_value * seconds).to_string() // Replace with time_value * seconds per unit
+        }).to_string();
+    }
+
+    // Evaluate the mathematical expression we've made
+    match meval::eval_str(&processed_input) {
+        Ok(num) => num as i64,
+        Err(_) => 0,
     }
 }
