@@ -975,6 +975,12 @@ pub fn clear_playtime_tracking(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub fn clear_playtime_tracking_by_id(conn: &Connection, game_id: &str) -> Result<()> {
+    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, play_counter = 0, last_played = NULL WHERE id = ?")?;
+    stmt.execute(params![game_id])?;
+    Ok(())
+}
+
 pub fn force_active_data_most_recent(conn: &Connection) -> Result<()> {
     conn.execute("UPDATE game
     SET activeDataId = (SELECT game_data.id FROM game_data WHERE game.id = game_data.gameId ORDER BY game_data.dateAdded DESC LIMIT 1)

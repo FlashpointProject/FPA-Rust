@@ -388,6 +388,12 @@ impl FlashpointArchive {
         })
     }
 
+    pub async fn clear_playtime_tracking_by_id(&self, game_id: &str) -> Result<()> {
+        with_connection!(&self.pool, |conn| {
+            game::clear_playtime_tracking_by_id(conn, game_id).context(error::SqliteSnafu)
+        })
+    }
+
     pub async fn clear_playtime_tracking(&self) -> Result<()> {
         with_connection!(&self.pool, |conn| {
             game::clear_playtime_tracking(conn).context(error::SqliteSnafu)
