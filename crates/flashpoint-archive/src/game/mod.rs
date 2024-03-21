@@ -509,7 +509,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
              extreme = ?, playMode = ?, status = ?, notes = ?, tagsStr = ?, source = ?, \
              applicationPath = ?, launchCommand = ?, releaseDate = ?, version = ?, \
              originalDescription = ?, language = ?, activeDataId = ?, activeDataOnDisk = ?, \
-             lastPlayed = ?, playtime = ?, activeGameConfigId = ?, activeGameConfigOwner = ?, \
+             lastPlayed = ?, playtime = ?, playCounter = ?, activeGameConfigId = ?, activeGameConfigOwner = ?, \
              archiveState = ? WHERE id = ?",
             params![
                 &existing_game.library,
@@ -539,6 +539,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
                 &existing_game.active_data_on_disk,
                 &existing_game.last_played,
                 &existing_game.playtime,
+                &existing_game.play_counter,
                 &existing_game.active_game_config_id,
                 &existing_game.active_game_config_owner,
                 &existing_game.archive_state,

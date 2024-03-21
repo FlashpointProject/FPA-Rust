@@ -238,6 +238,17 @@ pub fn get() -> Migrations<'static> {
         CREATE INDEX IF NOT EXISTS "IDX_redirect_sourceId" ON "game_redirect" (
             "sourceId"
         );"#),
+        // Fix messed up play counters
+        M::up(r#"
+        UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
+        "#),
+        // Make platform description not nullable
+        M::up(r#"
+          ALTER TABLE "platform" RENAME COLUMN "description" TO "description_old";
+          ALTER TABLE "platform" ADD COLUMN "description" varchar NOT NULL DEFAULT '';
+          UPDATE "platform" SET "description" = COALESCE(description_old, '');
+          ALTER TABLE "platform" DROP COLUMN "description_old";
+        "#),
     ]);
 
     migrations
