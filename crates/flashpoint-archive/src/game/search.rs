@@ -1069,23 +1069,47 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     blacklist_clause!(add_clause, "language", &filter.blacklist.language);
 
     let mut id_clause =
-        |values: &Option<Vec<String>>, blacklist: bool| {
+        |values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
             if let Some(value_list) = values {
-                // All game ids are exact, AND would be impossible to satisfy, treat as OR, always
-                let comparator = match blacklist {
-                    true => "NOT IN",
-                    false => "IN"
-                };
-                where_clauses.push(format!("(game.id {} rarray(?) OR game.id {} (SELECT id FROM game_redirect WHERE sourceId IN rarray(?)))", comparator, comparator));
-                params.push(SearchParam::StringVec(value_list.clone()));
-                params.push(SearchParam::StringVec(value_list.clone()));
+                if exact {
+                    // All game ids are exact, AND would be impossible to satisfy, treat as OR, always
+                    let comparator = match blacklist {
+                        true => "NOT IN",
+                        false => "IN"
+                    };
+                    where_clauses.push(format!("(game.id {} rarray(?) OR game.id {} (SELECT id FROM game_redirect WHERE sourceId IN rarray(?)))", comparator, comparator));
+                    params.push(SearchParam::StringVec(value_list.clone()));
+                    params.push(SearchParam::StringVec(value_list.clone())); 
+                } else {
+                    for value in value_list {
+                        if value.len() == 36 {
+                            let comparator = match blacklist {
+                                true => "!=",
+                                false => "="
+                            };
+                            where_clauses.push(format!("(game.id {} ? OR game.id {} (SELECT id FROM game_redirect WHERE sourceId = ? LIMIT 1))", comparator, comparator));
+                            
+                            params.push(SearchParam::String(value.clone()));
+                            params.push(SearchParam::String(value.clone()));
+                        } else {
+                            let comparator = match blacklist {
+                                true => "NOT LIKE",
+                                false => "LIKE"
+                            };
+                            where_clauses.push(format!("(game.id {} ?)", comparator));
+                            let p = format!("%{}%", value);
+                            params.push(SearchParam::String(p));                        }
+                    }
+                }
+
             }
         };
     
-    id_clause(&filter.exact_whitelist.id, false);
-    id_clause(&filter.whitelist.id, false);
-    id_clause(&filter.exact_blacklist.id, true);
-    id_clause(&filter.blacklist.id, true);
+    id_clause(&filter.exact_whitelist.id, true, false);
+    id_clause(&filter.exact_blacklist.id, true, true);
+    id_clause(&filter.whitelist.id, false, false);
+    id_clause(&filter.blacklist.id, false, false);
+
 
     let mut add_tagged_clause =
         |tag_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
