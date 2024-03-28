@@ -1139,7 +1139,10 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
 
-        let search = crate::game::search::parse_user_input("");
+        let mut search = crate::game::search::parse_user_input("");
+        let mut new_filter = GameFilter::default();
+        new_filter.exact_blacklist.tags = Some(vec!["Action".to_owned()]);
+        search.filter.subfilters.push(new_filter);
 
         let random_res = flashpoint.search_games_random(&search, 5).await;
         assert!(random_res.is_ok());

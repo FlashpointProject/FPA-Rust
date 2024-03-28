@@ -1708,6 +1708,9 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     add_compare_counter_clause("playCounter", KeyChar::HIGHER, &filter.higher_than.playcount);
     add_compare_counter_clause("playCounter", KeyChar::EQUALS, &filter.equal_to.playcount);
 
+    // Remove any cases of "()" from where_clauses
+
+    where_clauses = where_clauses.into_iter().filter(|s| s != "()").collect();
 
     if filter.match_any {
         where_clauses.join(" OR ")
