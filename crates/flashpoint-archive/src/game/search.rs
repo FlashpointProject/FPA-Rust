@@ -1196,6 +1196,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             }
                         }
                         // Let blacklisted tags always use OR comparisons
+                        // This needs to be changed to check for BOTH tags being on a game later!
                         (true, false) => format!(
                             "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                     SELECT {}Id FROM {}_alias WHERE ({})))",
@@ -1205,7 +1206,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             tag_name,
                             tag_name,
                             tag_name,
-                            inner_tag_queries.join(" AND ")
+                            inner_tag_queries.join(" OR ")
                         ),
                         (true, true) |
                         (false, true) => format!(
