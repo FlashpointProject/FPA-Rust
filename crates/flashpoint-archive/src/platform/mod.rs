@@ -100,9 +100,10 @@ pub fn find_or_create(conn: &Connection, name: &str, id: Option<i64>) -> Result<
 
 pub fn find_by_name(conn: &Connection, name: &str) -> Result<Option<Tag>> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, pa.name, p.description, p.dateModified FROM platform_alias pa
-        INNER JOIN platform p ON p.id = pa.platformId
-        WHERE pa.name = ? AND p.primaryAliasId == pa.id")?;
+        "SELECT p.id, pa.name, p.description, p.dateModified FROM platform p
+        INNER JOIN platform_alias pa ON p.id = pa.platformId
+        WHERE p.id IN (SELECT alias.platformId FROM platform_alias alias WHERE alias.name = ?)
+		AND p.primaryAliasId = pa.id")?;
 
     let platform_result = stmt.query_row(params![name], |row| {
         Ok(Tag {

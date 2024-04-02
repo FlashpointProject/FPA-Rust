@@ -198,10 +198,11 @@ pub fn find_or_create(conn: &Connection, name: &str) -> Result<Tag> {
 
 pub fn find_by_name(conn: &Connection, name: &str) -> Result<Option<Tag>> {
     let mut stmt = conn.prepare(
-        "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag_alias ta
-        INNER JOIN tag t ON t.id = ta.tagId
+        "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag t
+        INNER JOIN tag_alias ta ON t.id = ta.tagId
         INNER JOIN tag_category tc ON t.categoryId = tc.id
-        WHERE ta.name = ? AND t.primaryAliasId == ta.id",
+        WHERE t.id IN (SELECT alias.tagId FROM tag_alias alias WHERE alias.name = ?)
+		AND t.primaryAliasId = ta.id",
     )?;
 
     let tag_result = stmt

@@ -1165,4 +1165,30 @@ mod tests {
         println!("{:?}", index);
         assert_eq!(index.len(), 5);
     }
+
+    #[tokio::test]
+    async fn get_tag() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(TEST_DATABASE);
+        assert!(create.is_ok());
+
+        let tag_res = flashpoint.find_tag("Mario Bros.").await;
+        assert!(tag_res.is_ok());
+        let tag = tag_res.unwrap();
+        assert!(tag.is_some());
+        assert_eq!(tag.unwrap().name, "Super Mario");
+    }
+
+    #[tokio::test]
+    async fn get_platform() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(TEST_DATABASE);
+        assert!(create.is_ok());
+
+        let tag_res = flashpoint.find_platform("Jutvision").await;
+        assert!(tag_res.is_ok());
+        let tag = tag_res.unwrap();
+        assert!(tag.is_some());
+        assert_eq!(tag.unwrap().name, "asdadawdaw");
+    }
 }
