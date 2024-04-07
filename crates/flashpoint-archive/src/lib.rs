@@ -653,7 +653,6 @@ mod tests {
         // Test total results
         enable_debug();
         let total_result = flashpoint.search_games_total(&search).await;
-        println!("{:?}", total_result);
         assert!(total_result.is_ok());
         let total = total_result.unwrap();
         assert_eq!(total, 36541);
@@ -715,12 +714,19 @@ mod tests {
         game::search::parse_user_input(r#"tag:"sonic""#);
         game::search::parse_user_input(r#"o_%$ dev:"san" disk t:7 potato"#);
 
-        let s = game::search::parse_user_input(r#"title:"" -developer:"""#);
+        enable_debug();
+
+        // "" should be treated as exact
+        // Allow key characters in quoted text
+        let s = game::search::parse_user_input(r#"title:"" series:"sonic:hedgehog" -developer:"""#);
         assert!(s.filter.exact_whitelist.title.is_some());
         assert_eq!(s.filter.exact_whitelist.title.unwrap()[0], "");
+        assert!(s.filter.whitelist.series.is_some());
+        assert_eq!(s.filter.whitelist.series.unwrap()[0], "sonic:hedgehog");
         assert!(s.filter.exact_blacklist.developer.is_some());
         assert_eq!(s.filter.exact_blacklist.developer.unwrap()[0], "");
 
+        // Make sure the number filters are populated and the time text is processes
         let s2 = game::search::parse_user_input(r#"playtime>1h30m tags:3 playcount<3"#);
         assert!(s2.filter.higher_than.playtime.is_some());
         assert_eq!(s2.filter.higher_than.playtime.unwrap(), 60 * 90);
@@ -921,7 +927,6 @@ mod tests {
     async fn parse_user_search_input() {
         let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario"#;
         let search = game::search::parse_user_input(input);
-        println!("{:?}", search);
         assert!(search.filter.whitelist.generic.is_some());
         assert_eq!(search.filter.whitelist.generic.unwrap()[0], "sonic");
         assert!(search.filter.whitelist.title.is_some());
@@ -1120,15 +1125,12 @@ mod tests {
         assert!(result.is_ok());
         let old_game = result.unwrap();
         let mut platform = flashpoint.find_platform("HTML5").await.unwrap().unwrap();
-        println!("{} - {}", platform.id, platform.name);
         platform.name = String::from("Wiggle");
         let mut partial = PartialTag::from(platform);
-        println!("{} - {}", partial.id, partial.name);
         let save_res = flashpoint.save_platform(&mut partial).await;
         assert!(save_res.is_ok());
         assert_eq!(save_res.unwrap().name, "Wiggle");
         let new_game = flashpoint.find_game(&old_game.id).await.unwrap().unwrap();
-        println!("{}", new_game.platforms);
         assert_eq!(new_game.primary_platform, "Wiggle");
         assert!(new_game.platforms.contains(&"Wiggle".to_string()));
     }
@@ -1162,7 +1164,6 @@ mod tests {
         let index_res = flashpoint.search_games_index(&mut search.clone(), Some(1000)).await;
         assert!(index_res.is_ok());
         let index = index_res.unwrap();
-        println!("{:?}", index);
         assert_eq!(index.len(), 5);
     }
 

@@ -1889,8 +1889,9 @@ pub fn parse_user_input(input: &str) -> GameSearch {
     let mut working_key_char: Option<KeyChar> = None;
     let mut negative = false;
 
-    for mut token in input.split_whitespace() {
+    for raw_token in input.split_whitespace() {
         // Value on the same scope as token to append to
+        let mut token = raw_token.to_owned();
         let mut _t = "".to_owned();
         debug_println!("token {}", token);
         // Handle continued value capture if needed
@@ -1900,7 +1901,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             if token.starts_with("-") {
                 negative = true;
 
-                token = token.strip_prefix("-").unwrap();
+                token = token.strip_prefix("-").unwrap().to_owned();
             }
 
             if token.len() > 1 {
@@ -1910,15 +1911,15 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 debug_println!("start char: {}", ch);
                 match ch {
                     '#' => {
-                        token = token.strip_prefix('#').unwrap();
+                        token = token.strip_prefix('#').unwrap().to_owned();
                         working_key = "tag".to_owned();
                     }
                     '!' => {
-                        token = token.strip_prefix('!').unwrap();
+                        token = token.strip_prefix('!').unwrap().to_owned();
                         working_key = "platform".to_owned();
                     }
                     '@' => {
-                        token = token.strip_prefix('@').unwrap();
+                        token = token.strip_prefix('@').unwrap().to_owned();
                         working_key = "developer".to_owned();
                     }
                     _ => ()
@@ -1927,7 +1928,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
         }
 
         if token.starts_with('"') {
-            token = token.strip_prefix('"').unwrap();
+            token = token.strip_prefix('"').unwrap().to_owned();
             // Opening quote
             capturing_quotes = true;
         }
@@ -1957,7 +1958,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
 
         if working_value == "" {
             // No working input yet, check for key
-            working_key_char = earliest_key_char(token);
+            working_key_char = earliest_key_char(&token);
 
             // Extract the working key
             if let Some(kc) = working_key_char.clone() {
@@ -1965,10 +1966,12 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 let token_parts = token.split(&s).collect::<Vec<&str>>();
                 if token_parts.len() > 1 {
                     // Has a key
+                    debug_println!("key {:?}", &token_parts[0]);
                     working_key = token_parts[0].to_owned();
-                    token = token_parts[1];
+                    token = token_parts.into_iter().skip(1).collect::<Vec<&str>>().join(&s);
+                    debug_println!("value {:?}", &token);
                 } else {
-                    token = token_parts[0];
+                    token = token_parts[0].to_owned();
                 }
             }
 
@@ -1982,14 +1985,14 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     }
                 } else {
                     // Fully inside quotes
-                    token = token.strip_prefix('"').unwrap_or_else(|| "");
-                    token = token.strip_suffix('"').unwrap_or_else(|| "");
+                    token = token.strip_prefix('"').unwrap_or_else(|| "").to_owned();
+                    token = token.strip_suffix('"').unwrap_or_else(|| "").to_owned();
                     working_value = token.to_owned();
                 }
             } else {
                 if token.starts_with('"') {
                     // Starts quotes
-                    token = token.strip_prefix('"').unwrap();
+                    token = token.strip_prefix('"').unwrap().to_owned();
                     capturing_quotes = true;
                     working_value = token.to_owned();
                     continue;
