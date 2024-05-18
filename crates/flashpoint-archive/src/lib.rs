@@ -1192,4 +1192,28 @@ mod tests {
         assert!(tag.is_some());
         assert_eq!(tag.unwrap().name, "asdadawdaw");
     }
+
+    #[tokio::test]
+    async fn add_playtime() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let partial_game = game::PartialGame {
+            title: Some(String::from("Test Game")),
+            tags: Some(vec!["Action"].into()),
+            ..game::PartialGame::default()
+        };
+        let result = flashpoint.create_game(&partial_game).await;
+        assert!(result.is_ok());
+        let game_id = result.unwrap().id;
+        let playtime_res = flashpoint.add_game_playtime(&game_id, 30).await;
+        assert!(playtime_res.is_ok());
+        let saved_game_res = flashpoint.find_game(&game_id).await;
+        assert!(saved_game_res.is_ok());
+        let saved_game_opt = saved_game_res.unwrap();
+        assert!(saved_game_opt.is_some());
+        let saved_game = saved_game_opt.unwrap();
+        assert_eq!(saved_game.playtime, 30);
+        assert_eq!(saved_game.play_counter, 1);
+    }
 }

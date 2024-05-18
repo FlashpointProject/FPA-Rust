@@ -287,6 +287,7 @@ pub struct PartialGame {
     pub active_data_on_disk: Option<bool>,
     pub last_played: Option<String>,
     pub playtime: Option<i64>,
+    pub play_counter: Option<i64>,
     pub active_game_config_id: Option<i64>,
     pub active_game_config_owner: Option<String>,
     pub archive_state: Option<i64>,
@@ -1045,6 +1046,7 @@ impl Default for PartialGame {
             active_data_on_disk: None,
             last_played: None,
             playtime: None,
+            play_counter: None,
             active_game_config_id: None,
             active_game_config_owner: None,
             archive_state: None,
@@ -1216,6 +1218,10 @@ impl Game {
         if let Some(playtime) = source.playtime {
             self.playtime = playtime;
         }
+
+        if let Some(play_counter) = source.play_counter {
+            self.play_counter = play_counter;
+        }
     
         if let Some(active_game_config_id) = source.active_game_config_id {
             self.active_game_config_id = Some(active_game_config_id);
@@ -1276,6 +1282,7 @@ impl From<Game> for PartialGame {
             active_data_on_disk: Some(game.active_data_on_disk),
             last_played: game.last_played,
             playtime: Some(game.playtime),
+            play_counter: Some(game.play_counter),
             active_game_config_id: game.active_game_config_id,
             active_game_config_owner: game.active_game_config_owner,
             archive_state: Some(game.archive_state),

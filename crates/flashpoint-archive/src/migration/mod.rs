@@ -249,6 +249,10 @@ pub fn get() -> Migrations<'static> {
           UPDATE "platform" SET "description" = COALESCE(description_old, '');
           ALTER TABLE "platform" DROP COLUMN "description_old";
         "#),
+        // Fix messed up play counters again
+        M::up(r#"
+        UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
+        "#),
     ]);
 
     migrations
