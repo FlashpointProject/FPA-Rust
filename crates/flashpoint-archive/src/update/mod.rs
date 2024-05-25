@@ -252,12 +252,18 @@ pub fn apply_tags(conn: &Connection, tags: Vec<RemoteTag>) -> Result<()> {
         .flat_map(|cur| cur.aliases.iter().map(move |alias| Alias { id: cur.id, value: alias.clone() }))
         .collect();
 
+    let changed_ids: Vec<i64> = tags.iter().map(|cur| cur.id).collect();
+
     let existing_tags = tag::find(conn).context(error::SqliteSnafu)?;
     let existing_ids: std::collections::HashSet<i64> = existing_tags.iter().map(|p| p.id).collect();
 
     // Delete old tag aliases
     let changed_alias_names = SqlVec(changed_aliases.iter().map(|a| a.value.clone()).collect::<Vec<String>>());
     conn.execute("DELETE FROM tag_alias WHERE name IN rarray(?)", params![changed_alias_names]).context(error::SqliteSnafu)?;
+
+    // Clear aliases on all changed tags
+    let changed_ids_vec = SqlVec(changed_ids);
+    conn.execute("DELETE FROM tag_alias WHERE tagId IN rarray(?)", params![changed_ids_vec]).context(error::SqliteSnafu)?;
 
     let mut update_tag_stmt = conn.prepare("UPDATE tag SET dateModified = ?, primaryAliasId = (SELECT id FROM tag_alias WHERE name = ?), description = ?, categoryId = (SELECT id FROM tag_category WHERE name = ?) WHERE id = ?").context(error::SqliteSnafu)?;
     let mut insert_tag_stmt = conn.prepare("INSERT INTO tag (id, dateModified, primaryAliasId, description, categoryId) 

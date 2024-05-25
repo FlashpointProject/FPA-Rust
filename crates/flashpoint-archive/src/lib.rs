@@ -1216,4 +1216,32 @@ mod tests {
         assert_eq!(saved_game.playtime, 30);
         assert_eq!(saved_game.play_counter, 1);
     }
+
+    #[tokio::test]
+    async fn update_tags_clear_existing(    ) {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let new_tag_res = flashpoint.create_tag("test", None, Some(10)).await;
+        assert!(new_tag_res.is_ok());
+        let tag_update = RemoteTag {
+            id: 10,
+            name: "hello".to_owned(),
+            description: String::new(),
+            category: "default".to_owned(),
+            date_modified: "2024-01-01 12:00:00".to_owned(),
+            aliases: vec!["hello".to_owned()],
+            deleted: false,
+        };
+        let update_res = flashpoint.update_apply_tags(vec![tag_update]).await;
+        assert!(update_res.is_ok());
+        let saved_tag_res = flashpoint.find_tag_by_id(10).await;
+        assert!(saved_tag_res.is_ok());
+        let saved_tag_opt = saved_tag_res.unwrap();
+        assert!(saved_tag_opt.is_some());
+        let saved_tag = saved_tag_opt.unwrap();
+        assert_eq!(saved_tag.aliases.len(), 1);
+        assert_eq!(saved_tag.aliases[0].as_str(), "hello");
+        assert_eq!(saved_tag.name.as_str(), "hello");
+    }
 }
