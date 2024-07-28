@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::{atomic::AtomicBool, mpsc, Arc}};
-use game::{search::{GameSearch, PageTuple}, AdditionalApp, Game, GameRedirect, PartialGame};
+use game::{search::{GameFilter, GameSearch, PageTuple}, AdditionalApp, Game, GameRedirect, PartialGame};
 use game_data::{GameData, PartialGameData};
 use platform::PlatformAppPath;
 use r2d2::Pool;
@@ -496,6 +496,17 @@ pub fn copy_folder(src: &str, dest: &str) -> Result<u64> {
     util::copy_folder(src, dest).map_err(|_| snafu::NoneError).context(error::CopyFolderSnafu)
 }
 
+pub fn merge_game_filters(a: &GameFilter, b: &GameFilter) -> GameFilter {
+    let mut new_filter = GameFilter::default();
+    new_filter.subfilters = vec![a.clone(), b.clone()];
+
+    if a.match_any && b.match_any {
+        new_filter.match_any = true;
+    }
+
+    return new_filter;
+}
+
 #[macro_export]
 macro_rules! with_connection {
     ($pool:expr, $body:expr) => {
@@ -718,7 +729,7 @@ mod tests {
 
         // "" should be treated as exact
         // Allow key characters in quoted text
-        let s = game::search::parse_user_input(r#"title:"" series:"sonic:hedgehog" -developer:"""#);
+        let s = game::search::parse_user_input(r#"title:"" series:"sonic:hedgehog" -developer:"""#).search;
         assert!(s.filter.exact_whitelist.title.is_some());
         assert_eq!(s.filter.exact_whitelist.title.unwrap()[0], "");
         assert!(s.filter.whitelist.series.is_some());
@@ -727,7 +738,7 @@ mod tests {
         assert_eq!(s.filter.exact_blacklist.developer.unwrap()[0], "");
 
         // Make sure the number filters are populated and the time text is processes
-        let s2 = game::search::parse_user_input(r#"playtime>1h30m tags:3 playcount<3"#);
+        let s2 = game::search::parse_user_input(r#"playtime>1h30m tags:3 playcount<3"#).search;
         assert!(s2.filter.higher_than.playtime.is_some());
         assert_eq!(s2.filter.higher_than.playtime.unwrap(), 60 * 90);
         assert!(s2.filter.equal_to.tags.is_some());
@@ -738,7 +749,7 @@ mod tests {
 
     #[tokio::test]
     async fn parse_user_search_input_sizes() {
-        let search = game::search::parse_user_input("tags>5 addapps=3 gamedata<12 test>generic");
+        let search = game::search::parse_user_input("tags>5 addapps=3 gamedata<12 test>generic").search;
         assert!(search.filter.higher_than.tags.is_some());
         assert_eq!(search.filter.higher_than.tags.unwrap(), 5);
         assert!(search.filter.equal_to.add_apps.is_some());
@@ -925,8 +936,8 @@ mod tests {
 
     #[tokio::test]
     async fn parse_user_search_input() {
-        let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario"#;
-        let search = game::search::parse_user_input(input);
+        let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario installed:true"#;
+        let search = game::search::parse_user_input(input).search;
         assert!(search.filter.whitelist.generic.is_some());
         assert_eq!(search.filter.whitelist.generic.unwrap()[0], "sonic");
         assert!(search.filter.whitelist.title.is_some());
@@ -937,12 +948,14 @@ mod tests {
         assert_eq!(search.filter.whitelist.tags.unwrap()[0], "Action");
         assert!(search.filter.blacklist.generic.is_some());
         assert_eq!(search.filter.blacklist.generic.unwrap()[0], "mario");
+        assert!(search.filter.bool_comp.installed.is_some());
+        assert_eq!(search.filter.bool_comp.installed.unwrap(), true);
     }
 
     #[tokio::test]
     async fn parse_user_quick_search_input() {
         let input = r#"#Action -!Flash @"armor games" !"#;
-        let search = game::search::parse_user_input(input);
+        let search = game::search::parse_user_input(input).search;
         assert!(search.filter.whitelist.tags.is_some());
         assert_eq!(search.filter.whitelist.tags.unwrap()[0], "Action");
         assert!(search.filter.blacklist.platforms.is_some());
@@ -956,7 +969,7 @@ mod tests {
     #[tokio::test]
     async fn parse_user_exact_search_input() {
         let input = r#"!Flash -publisher=Newgrounds =sonic"#;
-        let search = game::search::parse_user_input(input);
+        let search = game::search::parse_user_input(input).search;
         assert!(search.filter.whitelist.platforms.is_some());
         assert_eq!(search.filter.whitelist.platforms.unwrap()[0], "Flash");
         assert!(search.filter.exact_blacklist.publisher.is_some());
@@ -1141,7 +1154,7 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
 
-        let mut search = crate::game::search::parse_user_input("");
+        let mut search = crate::game::search::parse_user_input("").search;
         let mut new_filter = GameFilter::default();
         new_filter.exact_blacklist.tags = Some(vec!["Action".to_owned()]);
         search.filter.subfilters.push(new_filter);

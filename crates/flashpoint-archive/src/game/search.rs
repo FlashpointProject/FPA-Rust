@@ -125,6 +125,7 @@ pub struct GameFilter {
     pub lower_than: SizeFilter,
     pub higher_than: SizeFilter,
     pub equal_to: SizeFilter,
+    pub bool_comp: BoolFilter,
     pub match_any: bool,
 }
 
@@ -152,6 +153,12 @@ pub struct FieldFilter {
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
+pub struct BoolFilter {
+    pub installed: Option<bool>,
+}
+
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
 pub struct SizeFilter {
     pub tags: Option<i64>,
     pub platforms: Option<i64>,
@@ -174,6 +181,7 @@ struct ForcedGameFilter {
     pub lower_than: SizeFilter,
     pub higher_than: SizeFilter,
     pub equal_to: SizeFilter,
+    pub bool_comp: BoolFilter,
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +242,7 @@ impl Default for GameFilter {
             lower_than: SizeFilter::default(),
             higher_than: SizeFilter::default(),
             equal_to: SizeFilter::default(),
+            bool_comp: BoolFilter::default(),
             match_any: false,
         }
     }
@@ -284,6 +293,7 @@ impl Default for ForcedGameFilter {
             lower_than: SizeFilter::default(),
             higher_than: SizeFilter::default(),
             equal_to: SizeFilter::default(),
+            bool_comp: BoolFilter::default(),
         }
     }
 }
@@ -326,6 +336,14 @@ impl Default for SizeFilter {
             playcount: None,
             last_played: None,
         };
+    }
+}
+
+impl Default for BoolFilter {
+    fn default() -> Self {
+        return BoolFilter {
+            installed: None,
+        }
     }
 }
 
@@ -548,6 +566,7 @@ impl From<&ForcedGameFilter> for GameFilter {
         search.higher_than = value.higher_than.clone();
         search.lower_than = value.lower_than.clone();
         search.equal_to = value.equal_to.clone();
+        search.bool_comp = value.bool_comp.clone();
 
         search
     }
@@ -752,6 +771,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     let mut games = Vec::new();
 
     let mut stmt = conn.prepare(query.as_str())?;
+    debug_println!("search query raw - \n{}", query.as_str());
     let game_map_closure = match search.slim {
         true => |row: &rusqlite::Row<'_>| -> Result<Game> {
             Ok(Game {
@@ -1709,6 +1729,15 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     add_compare_counter_clause("playCounter", KeyChar::HIGHER, &filter.higher_than.playcount);
     add_compare_counter_clause("playCounter", KeyChar::EQUALS, &filter.equal_to.playcount);
 
+    // Installed clause
+    if let Some(val) = filter.bool_comp.installed {
+        if val {
+            where_clauses.push("game.activeDataOnDisk".to_owned());
+        } else {
+            where_clauses.push("NOT game.activeDataOnDisk".to_owned());
+        }
+    }
+
     // Remove any cases of "()" from where_clauses
 
     where_clauses = where_clauses.into_iter().filter(|s| s != "()").collect();
@@ -1879,7 +1908,33 @@ pub fn mark_index_dirty(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn parse_user_input(input: &str) -> GameSearch {
+#[cfg_attr(feature = "napi", napi)]
+#[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[derive(Debug)]
+pub enum ElementType {
+    MODIFIER,
+    KEY,
+    KEYCHAR,
+    VALUE
+}
+
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct ElementPosition {
+    pub element: ElementType,
+    pub value: String,
+    pub start: i32,
+    pub end: i32,
+}
+
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct ParsedInput {
+    pub search: GameSearch,
+    pub positions: Vec<ElementPosition>,
+}
+
+pub fn parse_user_input(input: &str) -> ParsedInput {
     let mut search = GameSearch::default();
     let mut filter = ForcedGameFilter::default();
 
@@ -1889,9 +1944,13 @@ pub fn parse_user_input(input: &str) -> GameSearch {
     let mut working_key_char: Option<KeyChar> = None;
     let mut negative = false;
 
+    let mut positions = Vec::new();
+    let mut current_pos = 0;
+
     for raw_token in input.split_whitespace() {
         // Value on the same scope as token to append to
         let mut token = raw_token.to_owned();
+        let mut token_start = current_pos.try_into().unwrap_or(0);
         let mut _t = "".to_owned();
         debug_println!("token {}", token);
         // Handle continued value capture if needed
@@ -1902,6 +1961,13 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                 negative = true;
 
                 token = token.strip_prefix("-").unwrap().to_owned();
+                positions.push(ElementPosition {
+                    element: ElementType::MODIFIER,
+                    value: "-".to_owned(),
+                    start: token_start,
+                    end: token_start + 1,
+                });
+                token_start += 1;
             }
 
             if token.len() > 1 {
@@ -1913,14 +1979,35 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     '#' => {
                         token = token.strip_prefix('#').unwrap().to_owned();
                         working_key = "tag".to_owned();
+                        positions.push(ElementPosition {
+                            element: ElementType::MODIFIER,
+                            value: "#".to_owned(),
+                            start: token_start,
+                            end: token_start + 1,
+                        });
+                        token_start += 1;
                     }
                     '!' => {
                         token = token.strip_prefix('!').unwrap().to_owned();
                         working_key = "platform".to_owned();
+                        positions.push(ElementPosition {
+                            element: ElementType::MODIFIER,
+                            value: "!".to_owned(),
+                            start: token_start,
+                            end: token_start + 1,
+                        });
+                        token_start += 1;
                     }
                     '@' => {
                         token = token.strip_prefix('@').unwrap().to_owned();
                         working_key = "developer".to_owned();
+                        positions.push(ElementPosition {
+                            element: ElementType::MODIFIER,
+                            value: "@".to_owned(),
+                            start: token_start,
+                            end: token_start + 1,
+                        });
+                        token_start += 1;
                     }
                     _ => ()
                 }
@@ -1953,6 +2040,7 @@ pub fn parse_user_input(input: &str) -> GameSearch {
 
         if capturing_quotes {
             // Still in capture mode, get next token
+            current_pos += raw_token.len() + 1;
             continue;
         }
 
@@ -1970,6 +2058,13 @@ pub fn parse_user_input(input: &str) -> GameSearch {
                     working_key = token_parts[0].to_owned();
                     token = token_parts.into_iter().skip(1).collect::<Vec<&str>>().join(&s);
                     debug_println!("value {:?}", &token);
+                    positions.push(ElementPosition {
+                        element: ElementType::KEY,
+                        value: working_key.clone(),
+                        start: token_start,
+                        end: token_start + working_key.len().try_into().unwrap_or(0),
+                    });
+                    token_start += working_key.len().try_into().unwrap_or(0);
                 } else {
                     token = token_parts[0].to_owned();
                 }
@@ -2036,6 +2131,43 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             };
             let value = working_value.clone();
             let mut processed = false;
+
+            if let Some(kc) = &working_key_char {
+                positions.push(ElementPosition {
+                    element: ElementType::KEYCHAR,
+                    value: kc.to_owned().into(),
+                    start: token_start,
+                    end: token_start + 1,
+                });
+                token_start += 1;
+            }
+
+            // Track position of the value
+            positions.push(ElementPosition {
+                element: ElementType::VALUE,
+                value: working_value.clone(),
+                start: token_start,
+                end: token_start + working_value.len().try_into().unwrap_or(0),
+            });
+
+            
+            // Handle boolean comparisons
+            if !processed {
+                processed = true;
+                match working_key.to_lowercase().as_str() {
+                    "installed" => {
+                        let mut value = !(working_value.to_lowercase() == "no" && working_value.to_lowercase() == "false" && working_value.to_lowercase() == "0");
+                        if negative {
+                            value = !value;
+                        }
+
+                        filter.bool_comp.installed = Some(value);
+                    }
+                    _ => {
+                        processed = false;
+                    }
+                }
+            }
 
             // Handle numerical comparisons
             if let Some(kc) = &working_key_char {
@@ -2164,11 +2296,15 @@ pub fn parse_user_input(input: &str) -> GameSearch {
             working_value.clear();
             working_key.clear();
         }
+        current_pos += raw_token.len() + 1;
     }
 
     search.filter = (&filter).into();
 
-    search
+    ParsedInput {
+        search,
+        positions,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
