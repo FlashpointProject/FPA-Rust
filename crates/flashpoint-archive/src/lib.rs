@@ -1185,10 +1185,10 @@ mod tests {
             panic!("Expected 'installed' to be Some(true), but it was None.");
         }
 
-        search.limit = 5;
+        search.limit = 200;
         let games_res = flashpoint.search_games(&search).await;
         assert!(games_res.is_ok());
-        assert_eq!(games_res.unwrap().len(), 2);
+        assert_eq!(games_res.unwrap().len(), 20);
     }
 
     #[tokio::test]

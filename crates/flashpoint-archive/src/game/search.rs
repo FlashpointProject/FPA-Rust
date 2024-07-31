@@ -1737,7 +1737,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
 
     // Installed clause
     if let Some(val) = filter.bool_comp.installed {
-        where_clauses.push("game.activeDataOnDisk = ?".to_owned());
+        where_clauses.push("game.id IN (SELECT gameId FROM game_data WHERE game_data.presentOnDisk = ?)".to_owned());
         params.push(SearchParam::Boolean(val));
     }
 
