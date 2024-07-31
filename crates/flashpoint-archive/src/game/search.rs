@@ -45,7 +45,7 @@ impl Display for SearchParam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SearchParam::String(s) => f.write_str(s),
-            SearchParam::StringVec(m) => f.write_str(format!("'{}'", m.join("', '")).as_str()),
+            SearchParam::StringVec(m) => f.write_str(format!("{}", m.join("', '")).as_str()),
             SearchParam::Integer64(i) => f.write_str(i.to_string().as_str()),
         }
     }
@@ -771,7 +771,6 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     let mut games = Vec::new();
 
     let mut stmt = conn.prepare(query.as_str())?;
-    debug_println!("search query raw - \n{}", query.as_str());
     let game_map_closure = match search.slim {
         true => |row: &rusqlite::Row<'_>| -> Result<Game> {
             Ok(Game {
@@ -828,7 +827,11 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
             })
         },
     };
+
+
     let game_iter = stmt.query_map(params_as_refs.as_slice(), game_map_closure)?;
+
+
 
     for game in game_iter {
         let mut game: Game = game?;
@@ -1947,7 +1950,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
     let mut positions = Vec::new();
     let mut current_pos = 0;
 
-    for raw_token in input.split_whitespace() {
+    for raw_token in input.split(" ") {
         // Value on the same scope as token to append to
         let mut token = raw_token.to_owned();
         let mut token_start = current_pos.try_into().unwrap_or(0);

@@ -953,6 +953,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn parse_user_search_input_whitespace() {
+        let input = r#"series:"紅白Flash合戦  / Red & White Flash Battle 2013""#;
+        let search = game::search::parse_user_input(input).search;
+        assert!(search.filter.whitelist.series.is_some());
+        assert_eq!(search.filter.whitelist.series.unwrap()[0], "紅白Flash合戦  / Red & White Flash Battle 2013");
+    }
+
+    #[tokio::test]
     async fn parse_user_quick_search_input() {
         let input = r#"#Action -!Flash @"armor games" !"#;
         let search = game::search::parse_user_input(input).search;
