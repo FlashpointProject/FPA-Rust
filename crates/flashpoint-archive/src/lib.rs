@@ -1173,6 +1173,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn search_games_installed() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(TEST_DATABASE);
+        assert!(create.is_ok());
+
+        let mut search = crate::game::search::parse_user_input("installed:true").search;
+        if let Some(installed) = search.filter.bool_comp.installed.as_ref() {
+            assert_eq!(installed, &true);
+        } else {
+            panic!("Expected 'installed' to be Some(true), but it was None.");
+        }
+
+        search.limit = 5;
+        let games_res = flashpoint.search_games(&search).await;
+        assert!(games_res.is_ok());
+        assert_eq!(games_res.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
     async fn search_games_index_limited() {
         let mut flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(TEST_DATABASE);

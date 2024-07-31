@@ -13,6 +13,7 @@ use super::{get_game_data, get_game_platforms, get_game_tags, Game};
 
 #[derive(Debug, Clone)]
 pub enum SearchParam {
+    Boolean(bool),
     String(String),
     StringVec(Vec<String>),
     Integer64(i64),
@@ -27,6 +28,7 @@ pub struct TagFilterInfo {
 impl ToSql for SearchParam {
     fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
         match self {
+            SearchParam::Boolean(b) => Ok(ToSqlOutput::from(b.clone())),
             SearchParam::String(s) => Ok(ToSqlOutput::from(s.as_str())),
             SearchParam::StringVec(m) => {
                 let v: Rc<Vec<Value>> = Rc::new(
@@ -44,6 +46,7 @@ impl ToSql for SearchParam {
 impl Display for SearchParam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SearchParam::Boolean(b) => f.write_str(b.to_string().as_str()),
             SearchParam::String(s) => f.write_str(s),
             SearchParam::StringVec(m) => f.write_str(format!("{}", m.join("', '")).as_str()),
             SearchParam::Integer64(i) => f.write_str(i.to_string().as_str()),
@@ -1734,11 +1737,8 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
 
     // Installed clause
     if let Some(val) = filter.bool_comp.installed {
-        if val {
-            where_clauses.push("game.activeDataOnDisk".to_owned());
-        } else {
-            where_clauses.push("NOT game.activeDataOnDisk".to_owned());
-        }
+        where_clauses.push("game.activeDataOnDisk = ?".to_owned());
+        params.push(SearchParam::Boolean(val));
     }
 
     // Remove any cases of "()" from where_clauses
@@ -2133,7 +2133,6 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                 (false, true) => filter.exact_whitelist.clone(),
             };
             let value = working_value.clone();
-            let mut processed = false;
 
             if let Some(kc) = &working_key_char {
                 positions.push(ElementPosition {
@@ -2153,102 +2152,101 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                 end: token_start + working_value.len().try_into().unwrap_or(0),
             });
 
-            
             // Handle boolean comparisons
-            if !processed {
-                processed = true;
-                match working_key.to_lowercase().as_str() {
-                    "installed" => {
-                        let mut value = !(working_value.to_lowercase() == "no" && working_value.to_lowercase() == "false" && working_value.to_lowercase() == "0");
-                        if negative {
-                            value = !value;
-                        }
+            let mut processed: bool = true;
+            match working_key.to_lowercase().as_str() {
+                "installed" => {
+                    let mut value = !(working_value.to_lowercase() == "no" && working_value.to_lowercase() == "false" && working_value.to_lowercase() == "0");
+                    if negative {
+                        value = !value;
+                    }
 
-                        filter.bool_comp.installed = Some(value);
-                    }
-                    _ => {
-                        processed = false;
-                    }
+                    filter.bool_comp.installed = Some(value);
+                }
+                _ => {
+                    processed = false;
                 }
             }
 
             // Handle numerical comparisons
-            if let Some(kc) = &working_key_char {
-                processed = true;
-                match kc {
-                    KeyChar::LOWER => {
-                        let value = coerce_to_i64(&working_value);
-                        match working_key.to_lowercase().as_str() {
-                            "tags" => filter.lower_than.tags = Some(value),
-                            "platforms" => filter.lower_than.platforms = Some(value),
-                            "dateadded" | "da" => {
-                                filter.lower_than.date_added = Some(working_value.clone())
-                            }
-                            "datemodified" |"dm" => {
-                                filter.lower_than.date_modified = Some(working_value.clone())
-                            }
-                            "releasedate" | "rd" => {
-                                filter.lower_than.release_date = Some(working_value.clone())
-                            }
-                            "gamedata" | "gd" => filter.lower_than.game_data = Some(value),
-                            "addapps" | "aa" => filter.lower_than.add_apps = Some(value),
-                            "playtime" | "pt" => filter.lower_than.playtime = Some(value),
-                            "playcount" | "pc" => filter.lower_than.playcount = Some(value),
-                            "lastplayed" | "lp" => {
-                                filter.lower_than.last_played = Some(working_value.clone())
-                            },
-                            _ => {
-                                processed = false;
-                            }
-                        }
-                    }
-                    KeyChar::HIGHER => {
-                        let value = coerce_to_i64(&working_value);
-                        match working_key.to_lowercase().as_str() {
-                            "tags" => filter.higher_than.tags = Some(value),
-                            "platforms" => filter.higher_than.platforms = Some(value),
-                            "dateadded" | "da" => {
-                                filter.higher_than.date_added = Some(working_value.clone())
-                            }
-                            "datemodified" | "dm" => {
-                                filter.higher_than.date_modified = Some(working_value.clone())
-                            }
-                            "releasedate" | "rd" => {
-                                filter.higher_than.release_date = Some(working_value.clone())
-                            }
-                            "gamedata" | "gd" => filter.higher_than.game_data = Some(value),
-                            "addapps" | "aa" => filter.higher_than.add_apps = Some(value),
-                            "playtime" | "pt" => filter.higher_than.playtime = Some(value),
-                            "playcount" | "pc" => filter.higher_than.playcount = Some(value),
-                            "lastplayed" | "lp" => {
-                                filter.higher_than.last_played = Some(working_value.clone())
-                            },
-                            _ => {
-                                processed = false;
+            if !processed {
+                if let Some(kc) = &working_key_char {
+                    processed = true;
+                    match kc {
+                        KeyChar::LOWER => {
+                            let value = coerce_to_i64(&working_value);
+                            match working_key.to_lowercase().as_str() {
+                                "tags" => filter.lower_than.tags = Some(value),
+                                "platforms" => filter.lower_than.platforms = Some(value),
+                                "dateadded" | "da" => {
+                                    filter.lower_than.date_added = Some(working_value.clone())
+                                }
+                                "datemodified" |"dm" => {
+                                    filter.lower_than.date_modified = Some(working_value.clone())
+                                }
+                                "releasedate" | "rd" => {
+                                    filter.lower_than.release_date = Some(working_value.clone())
+                                }
+                                "gamedata" | "gd" => filter.lower_than.game_data = Some(value),
+                                "addapps" | "aa" => filter.lower_than.add_apps = Some(value),
+                                "playtime" | "pt" => filter.lower_than.playtime = Some(value),
+                                "playcount" | "pc" => filter.lower_than.playcount = Some(value),
+                                "lastplayed" | "lp" => {
+                                    filter.lower_than.last_played = Some(working_value.clone())
+                                },
+                                _ => {
+                                    processed = false;
+                                }
                             }
                         }
-                    }
-                    KeyChar::MATCHES | KeyChar::EQUALS => {
-                        let value = coerce_to_i64(&working_value);
-                        match working_key.to_lowercase().as_str() {
-                            "tags" => filter.equal_to.tags = Some(value),
-                            "platforms" => filter.equal_to.platforms = Some(value),
-                            "dateadded" | "da" => filter.equal_to.date_added = Some(working_value.clone()),
-                            "datemodified" | "dm" => {
-                                filter.equal_to.date_modified = Some(working_value.clone())
+                        KeyChar::HIGHER => {
+                            let value = coerce_to_i64(&working_value);
+                            match working_key.to_lowercase().as_str() {
+                                "tags" => filter.higher_than.tags = Some(value),
+                                "platforms" => filter.higher_than.platforms = Some(value),
+                                "dateadded" | "da" => {
+                                    filter.higher_than.date_added = Some(working_value.clone())
+                                }
+                                "datemodified" | "dm" => {
+                                    filter.higher_than.date_modified = Some(working_value.clone())
+                                }
+                                "releasedate" | "rd" => {
+                                    filter.higher_than.release_date = Some(working_value.clone())
+                                }
+                                "gamedata" | "gd" => filter.higher_than.game_data = Some(value),
+                                "addapps" | "aa" => filter.higher_than.add_apps = Some(value),
+                                "playtime" | "pt" => filter.higher_than.playtime = Some(value),
+                                "playcount" | "pc" => filter.higher_than.playcount = Some(value),
+                                "lastplayed" | "lp" => {
+                                    filter.higher_than.last_played = Some(working_value.clone())
+                                },
+                                _ => {
+                                    processed = false;
+                                }
                             }
-                            "releasedate" | "rd" => {
-                                filter.equal_to.release_date = Some(working_value.clone())
-                            }
-                            "gamedata" | "gd" => filter.equal_to.game_data = Some(value),
-                            "addapps" | "aa" => filter.equal_to.add_apps = Some(value),
-                            "playtime" | "pt" => filter.equal_to.playtime = Some(value),
-                            "playcount" | "pc" => filter.equal_to.playcount = Some(value),
-                            "lastplayed" | "lp" => {
-                                filter.equal_to.last_played = Some(working_value.clone())
-                            },
-                            _ => {
-                                processed = false;
+                        }
+                        KeyChar::MATCHES | KeyChar::EQUALS => {
+                            let value = coerce_to_i64(&working_value);
+                            match working_key.to_lowercase().as_str() {
+                                "tags" => filter.equal_to.tags = Some(value),
+                                "platforms" => filter.equal_to.platforms = Some(value),
+                                "dateadded" | "da" => filter.equal_to.date_added = Some(working_value.clone()),
+                                "datemodified" | "dm" => {
+                                    filter.equal_to.date_modified = Some(working_value.clone())
+                                }
+                                "releasedate" | "rd" => {
+                                    filter.equal_to.release_date = Some(working_value.clone())
+                                }
+                                "gamedata" | "gd" => filter.equal_to.game_data = Some(value),
+                                "addapps" | "aa" => filter.equal_to.add_apps = Some(value),
+                                "playtime" | "pt" => filter.equal_to.playtime = Some(value),
+                                "playcount" | "pc" => filter.equal_to.playcount = Some(value),
+                                "lastplayed" | "lp" => {
+                                    filter.equal_to.last_played = Some(working_value.clone())
+                                },
+                                _ => {
+                                    processed = false;
+                                }
                             }
                         }
                     }
