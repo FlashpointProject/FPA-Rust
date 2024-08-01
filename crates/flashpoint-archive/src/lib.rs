@@ -352,6 +352,24 @@ impl FlashpointArchive {
         })
     }
 
+    pub async fn find_all_game_developers(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_developers(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn find_all_game_publishers(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_publishers(conn).context(error::SqliteSnafu)
+        })
+    }
+
+    pub async fn find_all_game_series(&self) -> Result<Vec<String>> {
+        with_connection!(&self.pool, |conn| {
+            game::find_series(conn).context(error::SqliteSnafu)
+        })
+    }
+
     pub async fn find_all_game_libraries(&self) -> Result<Vec<String>> {
         with_connection!(&self.pool, |conn| {
             game::find_libraries(conn).context(error::SqliteSnafu)

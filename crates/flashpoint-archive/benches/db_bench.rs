@@ -110,6 +110,12 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
+    group.bench_function("get_all_developers", |b| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
+            flashpoint.find_all_game_developers().await.expect("Failed to get developers");
+        })
+    });
+
     group.finish();
 }
 

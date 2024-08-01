@@ -826,6 +826,55 @@ pub fn find_with_tag(conn: &Connection, tag: &str) -> Result<Vec<Game>> {
     search::search(conn, &search)
 }
 
+pub fn find_developers(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT developer FROM game")?;
+    let dev_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
+
+    let mut developers_set = HashSet::new();
+
+    for developer in dev_iter {
+        let developer = developer?;
+        for dev in developer.split(';') {
+            developers_set.insert(dev.trim().to_string());
+        }
+    }
+
+    let developers: Vec<String> = developers_set.into_iter().collect();
+
+    Ok(developers)
+}
+
+pub fn find_publishers(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT publisher FROM game")?;
+    let dev_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
+
+    let mut publishers_set = HashSet::new();
+
+    for publisher in dev_iter {
+        let publisher = publisher?;
+        for dev in publisher.split(';') {
+            publishers_set.insert(dev.trim().to_string());
+        }
+    }
+
+    let publishers: Vec<String> = publishers_set.into_iter().collect();
+
+    Ok(publishers)
+}
+
+pub fn find_series(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT series FROM game")?;
+    let series_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
+
+    let mut seriesss = vec![];
+
+    for series in series_iter {
+        seriesss.push(series?);
+    }
+
+    Ok(seriesss)
+}
+
 pub fn find_libraries(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT DISTINCT library FROM game")?;
     let libraries_iter = stmt.query_map((), |row| row.get(0))?;
