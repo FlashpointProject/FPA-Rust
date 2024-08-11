@@ -55,6 +55,7 @@ impl Display for SearchParam {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct GameSearch {
     pub filter: GameFilter,
@@ -68,6 +69,7 @@ pub struct GameSearch {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct GameSearchOffset {
     pub value: String,
@@ -76,6 +78,7 @@ pub struct GameSearchOffset {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct GameSearchOrder {
     pub column: GameSearchSortable,
@@ -84,6 +87,7 @@ pub struct GameSearchOrder {
 
 #[cfg_attr(feature = "napi", napi)]
 #[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, PartialEq)]
 pub enum GameSearchSortable {
     TITLE,
@@ -102,6 +106,7 @@ pub enum GameSearchSortable {
 
 #[cfg_attr(feature = "napi", napi)]
 #[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug)]
 pub enum GameSearchDirection {
     ASC,
@@ -109,6 +114,7 @@ pub enum GameSearchDirection {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct GameSearchRelations {
     pub tags: bool,
@@ -118,6 +124,7 @@ pub struct GameSearchRelations {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct GameFilter {
     pub subfilters: Vec<GameFilter>,
@@ -133,6 +140,7 @@ pub struct GameFilter {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct FieldFilter {
     pub id: Option<Vec<String>>,
@@ -155,12 +163,14 @@ pub struct FieldFilter {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct BoolFilter {
     pub installed: Option<bool>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct SizeFilter {
     pub tags: Option<i64>,
@@ -1913,6 +1923,7 @@ pub fn mark_index_dirty(conn: &Connection) -> Result<()> {
 
 #[cfg_attr(feature = "napi", napi)]
 #[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug)]
 pub enum ElementType {
     MODIFIER,
@@ -1922,6 +1933,7 @@ pub enum ElementType {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct ElementPosition {
     pub element: ElementType,
@@ -1931,6 +1943,7 @@ pub struct ElementPosition {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct ParsedInput {
     pub search: GameSearch,

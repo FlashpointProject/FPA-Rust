@@ -253,15 +253,6 @@ pub fn get() -> Migrations<'static> {
         M::up(r#"
             UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
         "#),
-        // Add Developer tables
-        M:up(r#"
-            CREATE TABLE IF NOT EXISTS "details_developer" (
-                "tagId" integer NOT NULL,
-                "description" varchar COLLATE NOCASE,
-                "status" varchar COLLATE NOCASE,
-                "links" varchar COLLATE NOCASE
-            );
-        "#),
     ]);
 
     migrations
