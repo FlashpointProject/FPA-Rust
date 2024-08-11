@@ -7,6 +7,16 @@ use tokio::runtime::Runtime;
 const TEST_DATABASE: &str = "benches/flashpoint.sqlite";
 
 pub fn criterion_benchmark(c: &mut Criterion) {
+    let tag_filter = vec![
+        "Adult".to_owned(),
+        "Xmas".to_owned(),
+        "Moderate Violence".to_owned(),
+        "Drugs".to_owned(),
+        "Transphobia".to_owned(),
+        "Seizure Warning".to_owned(),
+    ];
+    let empty_filter = vec![];
+
     let mut flashpoint = FlashpointArchive::new();
     flashpoint.load_database(TEST_DATABASE).expect("Failed to open database");
     let rand_file = File::open("benches/1k_rand.txt").expect("Failed to open file");
@@ -110,9 +120,27 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("get_all_developers", |b| {
+    group.bench_function("get_all_tags", |b| {
         b.to_async(Runtime::new().unwrap()).iter(|| async {
-            flashpoint.find_all_game_developers().await.expect("Failed to get developers");
+            flashpoint.find_all_tags(empty_filter.clone()).await.expect("Failed to get tags");
+        })
+    });
+
+    group.bench_function("get_all_tags_filtered", |b| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
+            flashpoint.find_all_tags(tag_filter.clone()).await.expect("Failed to get tags");
+        })
+    });
+
+    group.bench_function("get_all_developers_filtered", |b| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
+            flashpoint.find_all_game_developers(tag_filter.clone()).await.expect("Failed to get developers");
+        })
+    });
+
+    group.bench_function("get_all_series", |b| {
+        b.to_async(Runtime::new().unwrap()).iter(|| async {
+            flashpoint.find_all_game_series().await.expect("Failed to get developers");
         })
     });
 

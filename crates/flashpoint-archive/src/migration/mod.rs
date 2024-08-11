@@ -235,12 +235,12 @@ pub fn get() -> Migrations<'static> {
             ALTER TABLE "tag" DROP COLUMN "description_old";
         "#),
         M::up(r#"
-        CREATE INDEX IF NOT EXISTS "IDX_redirect_sourceId" ON "game_redirect" (
-            "sourceId"
+            CREATE INDEX IF NOT EXISTS "IDX_redirect_sourceId" ON "game_redirect" (
+                "sourceId"
         );"#),
         // Fix messed up play counters
         M::up(r#"
-        UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
+            UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
         "#),
         // Make platform description not nullable
         M::up(r#"
@@ -251,7 +251,16 @@ pub fn get() -> Migrations<'static> {
         "#),
         // Fix messed up play counters again
         M::up(r#"
-        UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
+            UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
+        "#),
+        // Add Developer tables
+        M:up(r#"
+            CREATE TABLE IF NOT EXISTS "details_developer" (
+                "tagId" integer NOT NULL,
+                "description" varchar COLLATE NOCASE,
+                "status" varchar COLLATE NOCASE,
+                "links" varchar COLLATE NOCASE
+            );
         "#),
     ]);
 

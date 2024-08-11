@@ -254,7 +254,7 @@ pub fn apply_tags(conn: &Connection, tags: Vec<RemoteTag>) -> Result<()> {
 
     let changed_ids: Vec<i64> = tags.iter().map(|cur| cur.id).collect();
 
-    let existing_tags = tag::find(conn).context(error::SqliteSnafu)?;
+    let existing_tags = tag::find(conn, vec![]).context(error::SqliteSnafu)?;
     let existing_ids: std::collections::HashSet<i64> = existing_tags.iter().map(|p| p.id).collect();
 
     // Delete old tag aliases

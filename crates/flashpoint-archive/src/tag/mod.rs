@@ -3,7 +3,7 @@ use std::rc::Rc;
 use rusqlite::{params, types::Value, Connection, OptionalExtension, Result};
 
 use crate::{
-    game::search::mark_index_dirty,
+    game::search::{mark_index_dirty, SearchParam},
     tag_category, update::SqlVec,
 };
 
@@ -101,15 +101,29 @@ impl From<Tag> for PartialTag {
     }
 }
 
-pub fn find(conn: &Connection) -> Result<Vec<Tag>> {
-    let mut stmt = conn.prepare(
-        "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag t
-        INNER JOIN tag_alias ta ON ta.id = t.primaryAliasId
-        INNER JOIN tag_category tc ON t.categoryId = tc.id
-        ORDER BY tc.name, ta.name",
-    )?;
+pub fn find(conn: &Connection, tag_filter: Vec<String>) -> Result<Vec<Tag>> {
+    let mut query = "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag t
+                INNER JOIN tag_alias ta ON ta.id = t.primaryAliasId
+                INNER JOIN tag_category tc ON t.categoryId = tc.id
+                ORDER BY tc.name, ta.name";
+    let mut params: Vec<SearchParam> = vec![];
 
-    let tag_iter = stmt.query_map((), |row| {
+    if tag_filter.len() > 0 {
+        // Allow use of rarray() in SQL queries
+        rusqlite::vtab::array::load_module(conn)?;
+        query = "SELECT t.id, ta.name, t.description, t.dateModified, tc.name FROM tag t
+                INNER JOIN tag_alias ta ON ta.id = t.primaryAliasId
+                INNER JOIN tag_category tc ON t.categoryId = tc.id
+                WHERE t.id NOT IN (
+                    SELECT tagId FROM tag_alias WHERE name IN rarray(?)
+                )
+                ORDER BY tc.name, ta.name";
+        params.push(SearchParam::StringVec(tag_filter));
+    }
+    let mut stmt = conn.prepare(query)?;
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let tag_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
         Ok(Tag {
             id: row.get(0)?,
             name: row.get(1)?,

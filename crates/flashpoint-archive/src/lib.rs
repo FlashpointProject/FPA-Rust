@@ -212,9 +212,9 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn find_all_tags(&self) -> Result<Vec<Tag>> {
+    pub async fn find_all_tags(&self, tag_filter: Vec<String>) -> Result<Vec<Tag>> {
         with_connection!(&self.pool, |conn| {
-            tag::find(conn).context(error::SqliteSnafu)
+            tag::find(conn, tag_filter).context(error::SqliteSnafu)
         })
     }
 
@@ -352,9 +352,9 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn find_all_game_developers(&self) -> Result<Vec<String>> {
+    pub async fn find_all_game_developers(&self, tag_filter: Vec<String>) -> Result<Vec<String>> {
         with_connection!(&self.pool, |conn| {
-            game::find_developers(conn).context(error::SqliteSnafu)
+            game::find_developers(conn, tag_filter).context(error::SqliteSnafu)
         })
     }
 

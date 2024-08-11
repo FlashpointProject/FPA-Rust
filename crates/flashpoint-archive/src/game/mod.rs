@@ -4,6 +4,7 @@ use rusqlite::{
     types::{FromSql, FromSqlError, ValueRef, Value},
     Connection, OptionalExtension, Result,
 };
+use search::SearchParam;
 use uuid::Uuid;
 use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
 
@@ -826,9 +827,24 @@ pub fn find_with_tag(conn: &Connection, tag: &str) -> Result<Vec<Game>> {
     search::search(conn, &search)
 }
 
-pub fn find_developers(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT DISTINCT developer FROM game")?;
-    let dev_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
+pub fn find_developers(conn: &Connection, tag_filter: Vec<String>) -> Result<Vec<String>> {
+    let mut query = "SELECT DISTINCT developer FROM game";
+    let mut params: Vec<SearchParam> = vec![];
+
+    if tag_filter.len() > 0 {
+        // Allow use of rarray() in SQL queries
+        rusqlite::vtab::array::load_module(conn)?;
+        query = "SELECT DISTINCT developer FROM game WHERE game.id NOT IN (
+            SELECT gameId FROM game_tags_tag WHERE tagId IN (
+                SELECT tagId FROM tag_alias WHERE name IN rarray(?)
+            )
+        )";
+        params.push(SearchParam::StringVec(tag_filter));
+    }
+    let mut stmt = conn.prepare(query)?;
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let dev_iter = stmt.query_map(params_as_refs.as_slice(), |row| row.get::<_, String>(0))?;
 
     let mut developers_set = HashSet::new();
 
