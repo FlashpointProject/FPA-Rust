@@ -1,9 +1,10 @@
 use rusqlite::Connection;
-use rusqlite_migration::{M, Migrations, Result};
+use rusqlite_migration::{Migrations, Result, M};
 
 pub fn get() -> Migrations<'static> {
     let migrations = Migrations::new(vec![
-        M::up(r#"
+        M::up(
+            r#"
             CREATE TABLE IF NOT EXISTS "tag_category" (
                 "id"	integer NOT NULL,
                 "name"	varchar NOT NULL COLLATE NOCASE,
@@ -185,16 +186,20 @@ pub fn get() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS "IDX_game_config_game_id" ON "game_config" (
                 "gameId"
             );
-            "#),
-        M::up(r#"
+            "#,
+        ),
+        M::up(
+            r#"
             UPDATE platform
             SET dateModified = REPLACE(SUBSTR(dateModified, 1, 19), 'T', ' ') || '.' || SUBSTR(dateModified, 21, 3)
             WHERE dateModified LIKE '____-__-__T__:__:__.__%';
             UPDATE tag
             SET dateModified = REPLACE(SUBSTR(dateModified, 1, 19), 'T', ' ') || '.' || SUBSTR(dateModified, 21, 3)
             WHERE dateModified LIKE '____-__-__T__:__:__.__%';
-            "#),
-        M::up(r#"
+            "#,
+        ),
+        M::up(
+            r#"
             CREATE TABLE IF NOT EXISTS "tag_filter_index_info" (
                 "key" VARCHAR NOT NULL,
                 PRIMARY KEY("key")
@@ -203,56 +208,85 @@ pub fn get() -> Migrations<'static> {
                 "id" VARCHAR NOT NULL,
                 PRIMARY KEY("id")
             );
-            "#),
-        M::up(r#"
+            "#,
+        ),
+        M::up(
+            r#"
             ALTER TABLE tag_filter_index_info ADD COLUMN dirty INTEGER DEFAULT 1;
-            "#),
-        M::up(r#"
+            "#,
+        ),
+        M::up(
+            r#"
             CREATE TABLE IF NOT EXISTS "custom_id_order" (
                 "id" VARCHAR NOT NULL
             );
-            "#),
-        M::up(r#"
+            "#,
+        ),
+        M::up(
+            r#"
             CREATE TABLE IF NOT EXISTS "game_redirect" (
                 "id" VARCHAR NOT NULL,
                 "sourceId" VARCHAR NOT NULL,
                 "dateAdded" datetime,
                 PRIMARY KEY("id", "sourceId")
             );
-            "#),
+            "#,
+        ),
         // Add no case collation to the platform name
-        M::up(r#"
+        M::up(
+            r#"
             ALTER TABLE "game" RENAME COLUMN "platformName" TO "platformName_old";
             ALTER TABLE "game" ADD COLUMN "platformName" varchar COLLATE NOCASE;
             UPDATE "game" SET "platformName" = "game"."platformName_old";
             ALTER TABLE "game" DROP COLUMN "platformName_old";
-        "#),
+        "#,
+        ),
         // Make tag description not nullable
-        M::up(r#"
+        M::up(
+            r#"
             ALTER TABLE "tag" RENAME COLUMN "description" TO "description_old";
             ALTER TABLE "tag" ADD COLUMN "description" varchar NOT NULL DEFAULT '';
             UPDATE "tag" SET "description" = COALESCE(description_old, '');
             ALTER TABLE "tag" DROP COLUMN "description_old";
-        "#),
-        M::up(r#"
+        "#,
+        ),
+        M::up(
+            r#"
             CREATE INDEX IF NOT EXISTS "IDX_redirect_sourceId" ON "game_redirect" (
                 "sourceId"
-        );"#),
+        );"#,
+        ),
         // Fix messed up play counters
-        M::up(r#"
+        M::up(
+            r#"
             UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
-        "#),
+        "#,
+        ),
         // Make platform description not nullable
-        M::up(r#"
+        M::up(
+            r#"
           ALTER TABLE "platform" RENAME COLUMN "description" TO "description_old";
           ALTER TABLE "platform" ADD COLUMN "description" varchar NOT NULL DEFAULT '';
           UPDATE "platform" SET "description" = COALESCE(description_old, '');
           ALTER TABLE "platform" DROP COLUMN "description_old";
-        "#),
+        "#,
+        ),
         // Fix messed up play counters again
-        M::up(r#"
+        M::up(
+            r#"
             UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
-        "#),
+        "#,
+        ),
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS "wiki_game_data" (
+                "gameId" VARCHAR NOT NULL,
+                "data" VARCHAR,
+                PRIMARY KEY("gameId"),
+                CONSTRAINT "FK_wiki_game_data" FOREIGN KEY("gameId") REFERENCES "game"("id") ON DELETE NO ACTION ON UPDATE NO ACTION
+            );
+        "#,
+        ),
     ]);
 
     migrations

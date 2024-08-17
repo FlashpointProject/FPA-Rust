@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result, params};
+use rusqlite::{params, Connection, Result};
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -59,7 +59,9 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     let mut stmt = conn.prepare("DELETE FROM game_data WHERE id = ?")?;
     stmt.execute(params![id])?;
 
-    stmt = conn.prepare("UPDATE game SET activeDataId = NULL, activeDataOnDisk = false WHERE activeDataId = ?")?;
+    stmt = conn.prepare(
+        "UPDATE game SET activeDataId = NULL, activeDataOnDisk = false WHERE activeDataId = ?",
+    )?;
     stmt.execute(params![id])?;
     Ok(())
 }

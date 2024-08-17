@@ -804,7 +804,7 @@ mod tests {
         assert!(create.is_ok());
         let partial_game = game::PartialGame {
             title: Some(String::from("Test Game")),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..game::PartialGame::default()
         };
         let result = flashpoint.create_game(&partial_game).await;
@@ -875,7 +875,7 @@ mod tests {
         assert!(create.is_ok());
         let partial_game = game::PartialGame {
             title: Some(String::from("Test Game")),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..game::PartialGame::default()
         };
         let result = flashpoint.create_game(&partial_game).await;
@@ -895,7 +895,7 @@ mod tests {
         assert_eq!(found_tags.len(), 1);
         assert_eq!(game.title, "Test Game");
         game.developer = String::from("Newgrounds");
-        game.tags = vec!["Action", "Adventure"].into();
+        game.tags = vec!["Action".to_owned(), "Adventure".to_owned()].into();
         game.primary_platform = String::from("Flash");
         let save_result = flashpoint.save_game(&mut game.into()).await;
         assert!(save_result.is_ok());
@@ -921,7 +921,7 @@ mod tests {
         assert!(create.is_ok());
         let partial_game = game::PartialGame {
             title: Some(String::from("Test Game")),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..game::PartialGame::default()
         };
         let game_create_res = flashpoint.create_game(&partial_game).await;
@@ -1036,7 +1036,7 @@ mod tests {
         assert!(flashpoint.load_database(":memory:").is_ok());
         let partial = PartialGame {
             title: Some("test".to_owned()),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..Default::default()
         };
         let new_game_res = flashpoint.create_game(&partial).await;
@@ -1059,7 +1059,7 @@ mod tests {
         assert!(flashpoint.load_database(":memory:").is_ok());
         let partial = PartialGame {
             title: Some("test".to_owned()),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..Default::default()
         };
         let new_game_res = flashpoint.create_game(&partial).await;
@@ -1085,7 +1085,7 @@ mod tests {
         assert!(flashpoint.load_database(":memory:").is_ok());
         let partial = PartialGame {
             title: Some("test".to_owned()),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..Default::default()
         };
         let new_game_res = flashpoint.create_game(&partial).await;
@@ -1105,7 +1105,7 @@ mod tests {
         assert!(flashpoint.load_database(":memory:").is_ok());
         let partial = PartialGame {
             title: Some("test".to_owned()),
-            platforms: Some(vec!["Flash"].into()),
+            platforms: Some(vec!["Flash".to_owned()].into()),
             ..Default::default()
         };
         let new_game_res = flashpoint.create_game(&partial).await;
@@ -1155,8 +1155,8 @@ mod tests {
         assert!(flashpoint.load_database(":memory:").is_ok());
         let partial_game = game::PartialGame {
             title: Some(String::from("Test Game")),
-            tags: Some(vec!["Action"].into()),
-            platforms: Some(vec!["Flash", "HTML5"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
+            platforms: Some(vec!["Flash".to_owned(), "HTML5".to_owned()].into()),
             primary_platform: Some("HTML5".into()),
             ..game::PartialGame::default()
         };
@@ -1258,7 +1258,7 @@ mod tests {
         assert!(create.is_ok());
         let partial_game = game::PartialGame {
             title: Some(String::from("Test Game")),
-            tags: Some(vec!["Action"].into()),
+            tags: Some(vec!["Action".to_owned()].into()),
             ..game::PartialGame::default()
         };
         let result = flashpoint.create_game(&partial_game).await;

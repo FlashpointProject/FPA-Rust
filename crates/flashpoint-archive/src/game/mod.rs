@@ -1,24 +1,35 @@
 use chrono::Utc;
 use rusqlite::{
     params,
-    types::{FromSql, FromSqlError, ValueRef, Value},
+    types::{FromSql, FromSqlError, Value, ValueRef},
     Connection, OptionalExtension, Result,
 };
 use search::SearchParam;
+use serde::ser::SerializeSeq;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+    vec::Vec,
+};
 use uuid::Uuid;
-use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
 
-use crate::{tag::{Tag, self}, platform::{self, PlatformAppPath}, game_data::{GameData, PartialGameData}};
+use crate::{
+    game_data::{GameData, PartialGameData},
+    platform::{self, PlatformAppPath},
+    tag::{self, Tag},
+};
 
 use self::search::{mark_index_dirty, GameSearch, GameSearchRelations};
 
 pub mod search;
 
 #[cfg(feature = "napi")]
-use napi::bindgen_prelude::{ToNapiValue, FromNapiValue};
+use napi::bindgen_prelude::{FromNapiValue, ToNapiValue};
 
 #[derive(Debug, Clone)]
-pub struct TagVec (Vec<String>);
+pub struct TagVec(Vec<String>);
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for TagVec {
@@ -26,8 +37,11 @@ impl serde::Serialize for TagVec {
     where
         S: serde::Serializer,
     {
-        let combined = self.0.join(";");
-        serializer.serialize_str(&combined)
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for s in &self.0 {
+            seq.serialize_element(s)?;
+        }
+        seq.end()
     }
 }
 
@@ -75,7 +89,7 @@ impl DerefMut for TagVec {
 
 impl Default for TagVec {
     fn default() -> Self {
-        TagVec (vec![])
+        TagVec(vec![])
     }
 }
 
@@ -88,7 +102,10 @@ impl Display for TagVec {
 
 #[cfg(feature = "napi")]
 impl FromNapiValue for TagVec {
-    unsafe fn from_napi_value(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<Self> {
+    unsafe fn from_napi_value(
+        env: napi::sys::napi_env,
+        napi_val: napi::sys::napi_value,
+    ) -> napi::Result<Self> {
         let mut len = 0;
         napi::sys::napi_get_array_length(env, napi_val, &mut len);
 
@@ -102,11 +119,11 @@ impl FromNapiValue for TagVec {
             let str_length = {
                 let mut str_length = 0;
                 napi::sys::napi_get_value_string_utf8(
-                    env, 
-                    element_value, 
-                    std::ptr::null_mut(), 
-                    0, 
-                    &mut str_length
+                    env,
+                    element_value,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut str_length,
                 );
                 str_length
             };
@@ -114,11 +131,11 @@ impl FromNapiValue for TagVec {
             let mut buffer = Vec::with_capacity(str_length as usize + 1);
             let buffer_ptr = buffer.as_mut_ptr() as *mut _;
             napi::sys::napi_get_value_string_utf8(
-                env, 
-                element_value, 
-                buffer_ptr, 
-                buffer.capacity(), 
-                std::ptr::null_mut()
+                env,
+                element_value,
+                buffer_ptr,
+                buffer.capacity(),
+                std::ptr::null_mut(),
             );
 
             buffer.set_len(str_length as usize);
@@ -132,14 +149,22 @@ impl FromNapiValue for TagVec {
 
 #[cfg(feature = "napi")]
 impl ToNapiValue for TagVec {
-    unsafe fn to_napi_value(env: napi::sys::napi_env, val: Self) -> napi::Result<napi::sys::napi_value> {
+    unsafe fn to_napi_value(
+        env: napi::sys::napi_env,
+        val: Self,
+    ) -> napi::Result<napi::sys::napi_value> {
         let len = val.len();
         let mut js_array: napi::sys::napi_value = std::ptr::null_mut();
         napi::sys::napi_create_array_with_length(env, len, &mut js_array);
 
         for (i, item) in val.iter().enumerate() {
             let mut js_string: napi::sys::napi_value = std::ptr::null_mut();
-            napi::sys::napi_create_string_utf8(env, item.as_ptr() as *const _, item.len(), &mut js_string);
+            napi::sys::napi_create_string_utf8(
+                env,
+                item.as_ptr() as *const _,
+                item.len(),
+                &mut js_string,
+            );
 
             napi::sys::napi_set_element(env, js_array, i as u32, js_string);
         }
@@ -157,12 +182,24 @@ impl IntoIterator for TagVec {
     }
 }
 
-impl From<Vec<&str>> for TagVec {
-    fn from(vec: Vec<&str>) -> Self {
-        let strings: Vec<String> = vec.iter().map(|&s| s.to_string()).collect();
-        TagVec (strings)
+impl From<Vec<String>> for TagVec {
+    fn from(vec: Vec<String>) -> Self {
+        TagVec(vec)
     }
 }
+
+impl Into<Vec<String>> for TagVec {
+    fn into(self) -> Vec<String> {
+        self.0
+    }
+}
+
+// impl From<Vec<&str>> for TagVec {
+//     fn from(vec: Vec<&str>) -> Self {
+//         let strings: Vec<String> = vec.iter().map(|&s| s.to_string()).collect();
+//         TagVec (strings)
+//     }
+// }
 
 // impl From<Vec<_>> for TagVec {
 //     fn from(vec: Vec<_>) -> Self {
@@ -306,10 +343,9 @@ pub struct GameRedirect {
 pub fn find_all_ids(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT id FROM game")?;
 
-    let ids = stmt.query_map([], |row| {
-        row.get(0)
-    })?
-    .collect::<Result<Vec<String>>>()?;
+    let ids = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<String>>>()?;
 
     Ok(ids)
 }
@@ -444,11 +480,17 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     )?;
 
     for tag in detailed_tags {
-        conn.execute("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)", params![game.id, tag])?;
+        conn.execute(
+            "INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)",
+            params![game.id, tag],
+        )?;
     }
 
     for platform in detailed_platforms {
-        conn.execute("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)", params![game.id, platform])?;
+        conn.execute(
+            "INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)",
+            params![game.id, platform],
+        )?;
     }
 
     mark_index_dirty(conn)?;
@@ -464,7 +506,37 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
     if let Some(mut existing_game) = existing_game_result {
         existing_game.apply_partial(game);
 
-        // Process  any tag and platform changes
+        // Process any add app changes
+        if let Some(add_apps) = game.add_apps.clone() {
+            // Check for removed add apps
+            if let Some(existing_add_apps) = &existing_game.add_apps {
+                for existing_aa in existing_add_apps {
+                    if !add_apps.iter().any(|aa| aa.id == existing_aa.id) {
+                        // Add app removed
+                        delete_add_app(conn, &existing_aa.id)?;
+                    }
+                }
+            }
+            // Save all add apps
+            for mut aa in add_apps {
+                match find_add_app_by_id(conn, &aa.id)? {
+                    Some(existing_aa) => {
+                        if existing_aa.parent_game_id != aa.parent_game_id {
+                            // Only save updates to add apps that exist on this game
+                            continue;
+                        }
+                        // Update
+                        update_add_app(conn, &aa)?;
+                    }
+                    None => {
+                        // Create
+                        create_add_app(conn, &mut aa)?;
+                    }
+                }
+            }
+        }
+
+        // Process any tag and platform changes
         let tags_copy = existing_game.tags.clone();
         let platforms_copy = existing_game.platforms.clone();
         let mut detailed_tags_copy: Vec<Tag> = vec![];
@@ -485,24 +557,49 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
         }
 
         // Update relations in database
-        let tag_ids: Vec<i64> = detailed_tags_copy.iter().map(|t| t.id).collect::<Vec<i64>>();
-        let tag_values = Rc::new(tag_ids.iter().copied().map(Value::from).collect::<Vec<Value>>());
-        let mut stmt = conn.prepare("DELETE FROM game_tags_tag WHERE gameId = ? AND tagId NOT IN rarray(?)")?;
-        stmt.execute(params![existing_game.id.as_str(), tag_values]).map(|changes| changes as usize)?;
+        let tag_ids: Vec<i64> = detailed_tags_copy
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<i64>>();
+        let tag_values = Rc::new(
+            tag_ids
+                .iter()
+                .copied()
+                .map(Value::from)
+                .collect::<Vec<Value>>(),
+        );
+        let mut stmt =
+            conn.prepare("DELETE FROM game_tags_tag WHERE gameId = ? AND tagId NOT IN rarray(?)")?;
+        stmt.execute(params![existing_game.id.as_str(), tag_values])
+            .map(|changes| changes as usize)?;
         for tag_id in tag_ids {
-            stmt = conn.prepare("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)")?;
+            stmt =
+                conn.prepare("INSERT OR IGNORE INTO game_tags_tag (gameId, tagId) VALUES (?, ?)")?;
             stmt.execute(params![existing_game.id.as_str(), tag_id])?;
         }
 
-        let platform_ids: Vec<i64> = detailed_platforms_copy.iter().map(|t| t.id).collect::<Vec<i64>>();
-        let platform_values = Rc::new(platform_ids.iter().copied().map(Value::from).collect::<Vec<Value>>());
-        let mut stmt = conn.prepare("DELETE FROM game_platforms_platform WHERE gameId = ? AND platformId NOT IN rarray(?)")?;
-        stmt.execute(params![existing_game.id.as_str(), platform_values]).map(|changes| changes as usize)?;
+        let platform_ids: Vec<i64> = detailed_platforms_copy
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<i64>>();
+        let platform_values = Rc::new(
+            platform_ids
+                .iter()
+                .copied()
+                .map(Value::from)
+                .collect::<Vec<Value>>(),
+        );
+        let mut stmt = conn.prepare(
+            "DELETE FROM game_platforms_platform WHERE gameId = ? AND platformId NOT IN rarray(?)",
+        )?;
+        stmt.execute(params![existing_game.id.as_str(), platform_values])
+            .map(|changes| changes as usize)?;
         for platform_id in platform_ids {
-            stmt = conn.prepare("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)")?;
+            stmt = conn.prepare(
+                "INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)",
+            )?;
             stmt.execute(params![existing_game.id.as_str(), platform_id])?;
         }
-
 
         // Write back the changes to the database
         conn.execute(
@@ -549,8 +646,6 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
             ],
         )?;
 
-
-
         existing_game.detailed_platforms = get_game_platforms(conn, &existing_game.id)?.into();
         existing_game.detailed_tags = get_game_tags(conn, &existing_game.id)?.into();
         existing_game.game_data = get_game_data(conn, &existing_game.id)?.into();
@@ -563,7 +658,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
     }
 }
 
-pub fn delete(conn: &Connection, id: &str) -> Result<()> {    
+pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     let mut stmt = "DELETE FROM game WHERE id = ?";
     conn.execute(stmt, params![id])?;
 
@@ -671,12 +766,14 @@ fn get_game_tags(conn: &Connection, id: &str) -> Result<Vec<Tag>> {
 pub fn get_game_data(conn: &Connection, id: &str) -> Result<Vec<GameData>> {
     let mut game_data: Vec<GameData> = vec![];
 
-    let mut game_data_stmt = conn.prepare("
+    let mut game_data_stmt = conn.prepare(
+        "
         SELECT id, title, dateAdded, sha256, crc32, presentOnDisk,
         path, size, parameters, applicationPath, launchCommand
         FROM game_data
         WHERE gameId = ?
-    ")?;
+    ",
+    )?;
 
     let rows = game_data_stmt.query_map(params![id], |row| {
         Ok(GameData {
@@ -705,7 +802,7 @@ pub fn get_game_data(conn: &Connection, id: &str) -> Result<Vec<GameData>> {
 fn get_game_add_apps(conn: &Connection, game_id: &str) -> Result<Vec<AdditionalApp>> {
     let mut add_app_stmt = conn.prepare(
         "SELECT id, name, applicationPath, launchCommand, autoRunBefore, waitForExit
-        FROM additional_app WHERE parentGameId = ?"
+        FROM additional_app WHERE parentGameId = ?",
     )?;
 
     let mut add_apps: Vec<AdditionalApp> = vec![];
@@ -730,29 +827,33 @@ fn get_game_add_apps(conn: &Connection, game_id: &str) -> Result<Vec<AdditionalA
 }
 
 pub fn find_game_data_by_id(conn: &Connection, id: i64) -> Result<Option<GameData>> {
-    let mut game_data_stmt = conn.prepare("
+    let mut game_data_stmt = conn.prepare(
+        "
         SELECT gameId, title, dateAdded, sha256, crc32, presentOnDisk,
         path, size, parameters, applicationPath, launchCommand
         FROM game_data
         WHERE id = ?
-    ")?;
+    ",
+    )?;
 
-    Ok(game_data_stmt.query_row(params![id], |row| {
-        Ok(GameData {
-            id: id.to_owned(),
-            game_id: row.get(0)?,
-            title: row.get(1)?,
-            date_added: row.get(2)?,
-            sha256: row.get(3)?,
-            crc32: row.get(4)?,
-            present_on_disk: row.get(5)?,
-            path: row.get(6)?,
-            size: row.get(7)?,
-            parameters: row.get(8)?,
-            application_path: row.get(9)?,
-            launch_command: row.get(10)?,
+    Ok(game_data_stmt
+        .query_row(params![id], |row| {
+            Ok(GameData {
+                id: id.to_owned(),
+                game_id: row.get(0)?,
+                title: row.get(1)?,
+                date_added: row.get(2)?,
+                sha256: row.get(3)?,
+                crc32: row.get(4)?,
+                present_on_disk: row.get(5)?,
+                path: row.get(6)?,
+                size: row.get(7)?,
+                parameters: row.get(8)?,
+                application_path: row.get(9)?,
+                launch_command: row.get(10)?,
+            })
         })
-    }).optional()?)
+        .optional()?)
 }
 
 pub fn create_game_data(conn: &Connection, partial: &PartialGameData) -> Result<GameData> {
@@ -764,47 +865,76 @@ pub fn create_game_data(conn: &Connection, partial: &PartialGameData) -> Result<
     }
 
     let mut game_data: GameData = partial.into();
-    
-    let mut stmt = conn.prepare("INSERT INTO game_data (gameId, title, dateAdded, sha256, crc32, presentOnDisk
+
+    let mut stmt = conn.prepare(
+        "INSERT INTO game_data (gameId, title, dateAdded, sha256, crc32, presentOnDisk
         , path, size, parameters, applicationPath, launchCommand)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")?;
-    let game_data_id: i64 = stmt.query_row(params![
-        &game_data.game_id,
-        &game_data.title,
-        &game_data.date_added,
-        &game_data.sha256,
-        &game_data.crc32,
-        &game_data.present_on_disk,
-        &game_data.path,
-        &game_data.size,
-        &game_data.parameters,
-        &game_data.application_path,
-        &game_data.launch_command,
-    ], |row| row.get(0))?;
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+    )?;
+    let game_data_id: i64 = stmt.query_row(
+        params![
+            &game_data.game_id,
+            &game_data.title,
+            &game_data.date_added,
+            &game_data.sha256,
+            &game_data.crc32,
+            &game_data.present_on_disk,
+            &game_data.path,
+            &game_data.size,
+            &game_data.parameters,
+            &game_data.application_path,
+            &game_data.launch_command,
+        ],
+        |row| row.get(0),
+    )?;
 
     game_data.id = game_data_id;
     Ok(game_data)
 }
 
+pub fn update_game_data(conn: &Connection, gd: &GameData) -> Result<()> {
+    // Make sure game exists
+    let game = find(conn, &gd.game_id)?;
+    if game.is_none() {
+        println!("{} missing", &gd.game_id);
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    let mut stmt = conn.prepare(
+        "UPDATE game_data SET
+        parameters = ?,
+        applicationPath = ?,
+        launchCommand = ?,
+        WHERE id = ?",
+    )?;
+    stmt.execute(params![
+        gd.parameters,
+        gd.application_path,
+        gd.launch_command,
+        gd.id,
+    ])?;
+    Ok(())
+}
+
+pub fn delete_game_data(conn: &Connection, gd_id: i64) -> Result<()> {
+    let mut stmt = conn.prepare("DELETE FROM game_data WHERE id = ?")?;
+    stmt.execute(params![gd_id])?;
+    Ok(())
+}
+
 pub fn save_game_data(conn: &Connection, partial: &PartialGameData) -> Result<GameData> {
     let game_data: GameData = partial.into();
-    
-    let mut stmt = conn.prepare("UPDATE game_data
-        SET gameId = ?, title = ?, dateAdded = ?, sha256 = ?, crc32 = ?, presentOnDisk = ?,
-        path = ?, size = ?, parameters = ?, applicationPath = ?, launchCommand = ? WHERE id = ?")?;
+
+    let mut stmt = conn.prepare(
+        "UPDATE game_data title = ?, parameters = ?, applicationPath = ?, launchCommand = ? WHERE gameId = ? AND dateAdded = ?",
+    )?;
     stmt.execute(params![
-        &game_data.game_id,
         &game_data.title,
-        &game_data.date_added,
-        &game_data.sha256,
-        &game_data.crc32,
-        &game_data.present_on_disk,
-        &game_data.path,
-        &game_data.size,
         &game_data.parameters,
         &game_data.application_path,
         &game_data.launch_command,
-        &game_data.id,
+        &game_data.game_id,
+        &game_data.date_added,
     ])?;
 
     let res = find_game_data_by_id(conn, game_data.id)?;
@@ -915,8 +1045,9 @@ pub fn find_statuses(conn: &Connection) -> Result<Vec<String>> {
 
     for status in status_iter {
         if let Ok(status) = status {
-
-            status.split(';').for_each(|v| { statuses.insert(v.trim().to_string()); });
+            status.split(';').for_each(|v| {
+                statuses.insert(v.trim().to_string());
+            });
         }
     }
 
@@ -934,8 +1065,9 @@ pub fn find_play_modes(conn: &Connection) -> Result<Vec<String>> {
 
     for play_mode in play_modes_iter {
         if let Ok(play_mode) = play_mode {
-
-            play_mode.split(';').for_each(|v| { play_modes.insert(v.trim().to_string()); });
+            play_mode.split(';').for_each(|v| {
+                play_modes.insert(v.trim().to_string());
+            });
         }
     }
 
@@ -943,12 +1075,14 @@ pub fn find_play_modes(conn: &Connection) -> Result<Vec<String>> {
 }
 
 pub fn find_application_paths(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("
+    let mut stmt = conn.prepare(
+        "
     SELECT COUNT(*) as games_count, applicationPath FROM (
         SELECT applicationPath FROM game WHERE applicationPath != ''
         UNION ALL
         SELECT applicationPath FROM game_data WHERE applicationPath != ''
-    ) GROUP BY applicationPath ORDER BY games_count DESC")?;
+    ) GROUP BY applicationPath ORDER BY games_count DESC",
+    )?;
     let ap_iter = stmt.query_map((), |row| row.get(1))?;
 
     let mut app_paths = vec![];
@@ -996,35 +1130,74 @@ pub fn find_platform_app_paths(conn: &Connection) -> Result<HashMap<String, Vec<
 }
 
 pub fn find_add_app_by_id(conn: &Connection, id: &str) -> Result<Option<AdditionalApp>> {
-    let mut stmt = conn.prepare("SELECT name, applicationPath, launchCommand, autoRunBefore,
-        waitForExit, parentGameId FROM additional_app WHERE id = ?")?;
+    let mut stmt = conn.prepare(
+        "SELECT name, applicationPath, launchCommand, autoRunBefore,
+        waitForExit, parentGameId FROM additional_app WHERE id = ?",
+    )?;
 
     stmt.query_row(params![id], |row| {
-        Ok(AdditionalApp{
+        Ok(AdditionalApp {
             id: id.to_owned(),
             name: row.get(0)?,
             application_path: row.get(1)?,
             launch_command: row.get(2)?,
             auto_run_before: row.get(3)?,
             wait_for_exit: row.get(4)?,
-            parent_game_id: row.get(5)?
+            parent_game_id: row.get(5)?,
         })
-    }).optional()
+    })
+    .optional()
 }
 
 pub fn create_add_app(conn: &Connection, add_app: &mut AdditionalApp) -> Result<()> {
-    let id = conn.query_row("INSERT INTO additional_app (
+    let id = conn.query_row(
+        "INSERT INTO additional_app (
         id, applicationPath, launchCommand, name, parentGameId, autoRunBefore, waitForExit
-    ) VALUES (?, ?, ?, ?, ?, ? , ?) RETURNING id", params![add_app.id, add_app.application_path, add_app.launch_command,
-    add_app.name, add_app.parent_game_id, add_app.auto_run_before, add_app.wait_for_exit], |row| row.get::<_, String>(0))?;
+    ) VALUES (?, ?, ?, ?, ?, ? , ?) RETURNING id",
+        params![
+            add_app.id,
+            add_app.application_path,
+            add_app.launch_command,
+            add_app.name,
+            add_app.parent_game_id,
+            add_app.auto_run_before,
+            add_app.wait_for_exit
+        ],
+        |row| row.get::<_, String>(0),
+    )?;
     add_app.id = id;
+    Ok(())
+}
+
+pub fn update_add_app(conn: &Connection, add_app: &AdditionalApp) -> Result<()> {
+    conn.execute(
+        "UPDATE additional_app SET
+        applicationPath = ?, launchCommand = ?, name = ?, autoRunBefore = ?, waitForExit = ?
+        WHERE id = ?",
+        params![
+            add_app.application_path,
+            add_app.launch_command,
+            add_app.name,
+            add_app.auto_run_before,
+            add_app.wait_for_exit,
+            add_app.id,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn delete_add_app(conn: &Connection, add_app_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM additional_app WHERE id = ?",
+        params![add_app_id],
+    )?;
     Ok(())
 }
 
 pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()> {
     let mut game = match find(conn, game_id)? {
         Some(g) => g,
-        None => return Err(rusqlite::Error::QueryReturnedNoRows)
+        None => return Err(rusqlite::Error::QueryReturnedNoRows),
     };
 
     game.play_counter += 1;
@@ -1036,13 +1209,15 @@ pub fn add_playtime(conn: &Connection, game_id: &str, seconds: i64) -> Result<()
 }
 
 pub fn clear_playtime_tracking(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, playCounter = 0, lastPlayed = NULL")?;
+    let mut stmt =
+        conn.prepare("UPDATE game SET playtime = 0, playCounter = 0, lastPlayed = NULL")?;
     stmt.execute(())?;
     Ok(())
 }
 
 pub fn clear_playtime_tracking_by_id(conn: &Connection, game_id: &str) -> Result<()> {
-    let mut stmt = conn.prepare("UPDATE game SET playtime = 0, playCounter = 0, lastPlayed = NULL WHERE id = ?")?;
+    let mut stmt = conn
+        .prepare("UPDATE game SET playtime = 0, playCounter = 0, lastPlayed = NULL WHERE id = ?")?;
     stmt.execute(params![game_id])?;
     Ok(())
 }
@@ -1058,10 +1233,12 @@ pub fn find_redirects(conn: &Connection) -> Result<Vec<GameRedirect>> {
     let mut redirects = vec![];
 
     let mut stmt = conn.prepare("SELECT sourceId, id, dateAdded FROM game_redirect")?;
-    let redirects_iter = stmt.query_map((), |row| Ok(GameRedirect{
-        source_id: row.get(0)?,
-        dest_id: row.get(1)?
-    }))?;
+    let redirects_iter = stmt.query_map((), |row| {
+        Ok(GameRedirect {
+            source_id: row.get(0)?,
+            dest_id: row.get(1)?,
+        })
+    })?;
 
     for r in redirects_iter {
         redirects.push(r?);
@@ -1071,12 +1248,18 @@ pub fn find_redirects(conn: &Connection) -> Result<Vec<GameRedirect>> {
 }
 
 pub fn create_redirect(conn: &Connection, src_id: &str, dest_id: &str) -> Result<()> {
-    conn.execute("INSERT OR IGNORE INTO game_redirect (sourceId, id) VALUES (?, ?)", params![src_id, dest_id])?;
+    conn.execute(
+        "INSERT OR IGNORE INTO game_redirect (sourceId, id) VALUES (?, ?)",
+        params![src_id, dest_id],
+    )?;
     Ok(())
 }
 
 pub fn delete_redirect(conn: &Connection, src_id: &str, dest_id: &str) -> Result<()> {
-    conn.execute("DELETE FROM game_redirect WHERE sourceId = ? AND id = ?", params![src_id, dest_id])?;
+    conn.execute(
+        "DELETE FROM game_redirect WHERE sourceId = ? AND id = ?",
+        params![src_id, dest_id],
+    )?;
     Ok(())
 }
 
@@ -1178,19 +1361,19 @@ impl Game {
         if let Some(title) = source.title.clone() {
             self.title = title;
         }
-    
+
         if let Some(alternate_titles) = source.alternate_titles.clone() {
             self.alternate_titles = alternate_titles;
         }
-    
+
         if let Some(series) = source.series.clone() {
             self.series = series;
         }
-    
+
         if let Some(developer) = source.developer.clone() {
             self.developer = developer;
         }
-    
+
         if let Some(publisher) = source.publisher.clone() {
             self.publisher = publisher;
         }
@@ -1198,7 +1381,7 @@ impl Game {
         if let Some(platforms) = source.platforms.clone() {
             self.platforms = platforms;
         }
-    
+
         if let Some(platform) = source.primary_platform.clone() {
             // Make sure platforms always includes the primary platform
             if !self.platforms.contains(&platform) {
@@ -1207,79 +1390,79 @@ impl Game {
 
             self.primary_platform = platform;
         }
-    
+
         if let Some(date_added) = source.date_added.clone() {
             self.date_added = date_added;
         }
-    
+
         if let Some(date_modified) = source.date_modified.clone() {
             self.date_modified = date_modified;
         }
-    
+
         if let Some(legacy_broken) = source.legacy_broken {
             self.legacy_broken = legacy_broken;
         }
-    
+
         if let Some(legacy_extreme) = source.legacy_extreme {
             self.legacy_extreme = legacy_extreme;
         }
-    
+
         if let Some(play_mode) = source.play_mode.clone() {
             self.play_mode = play_mode;
         }
-    
+
         if let Some(status) = source.status.clone() {
             self.status = status;
         }
-    
+
         if let Some(notes) = source.notes.clone() {
             self.notes = notes;
         }
-    
+
         if let Some(tags) = source.tags.clone() {
             self.tags = tags;
         }
-    
+
         if let Some(source) = source.source.clone() {
             self.source = source;
         }
-    
+
         if let Some(legacy_application_path) = source.legacy_application_path.clone() {
             self.legacy_application_path = legacy_application_path;
         }
-    
+
         if let Some(legacy_launch_command) = source.legacy_launch_command.clone() {
             self.legacy_launch_command = legacy_launch_command;
         }
-    
+
         if let Some(release_date) = source.release_date.clone() {
             self.release_date = release_date;
         }
-    
+
         if let Some(version) = source.version.clone() {
             self.version = version;
         }
-    
+
         if let Some(original_description) = source.original_description.clone() {
             self.original_description = original_description;
         }
-    
+
         if let Some(language) = source.language.clone() {
             self.language = language;
         }
-    
+
         if let Some(active_data_id) = source.active_data_id {
             self.active_data_id = Some(active_data_id);
         }
-    
+
         if let Some(active_data_on_disk) = source.active_data_on_disk {
             self.active_data_on_disk = active_data_on_disk;
         }
-    
+
         if let Some(last_played) = source.last_played.clone() {
             self.last_played = Some(last_played);
         }
-    
+
         if let Some(playtime) = source.playtime {
             self.playtime = playtime;
         }
@@ -1287,15 +1470,15 @@ impl Game {
         if let Some(play_counter) = source.play_counter {
             self.play_counter = play_counter;
         }
-    
+
         if let Some(active_game_config_id) = source.active_game_config_id {
             self.active_game_config_id = Some(active_game_config_id);
         }
-    
+
         if let Some(active_game_config_owner) = source.active_game_config_owner.clone() {
             self.active_game_config_owner = Some(active_game_config_owner);
         }
-    
+
         if let Some(archive_state) = source.archive_state {
             self.archive_state = archive_state;
         }
@@ -1389,11 +1572,11 @@ impl GameData {
         if let Some(path) = value.path.clone() {
             self.path = Some(path);
         }
-        
+
         if let Some(parameters) = value.parameters.clone() {
             self.parameters = Some(parameters);
         }
-    
+
         if let Some(application_path) = value.application_path.clone() {
             self.application_path = application_path;
         }
@@ -1401,7 +1584,6 @@ impl GameData {
         if let Some(launch_command) = value.launch_command.clone() {
             self.launch_command = launch_command;
         }
-
     }
 }
 

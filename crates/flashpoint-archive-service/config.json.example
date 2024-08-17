@@ -1,0 +1,11 @@
+{
+    "oauth_client_id": "client-id",
+    "oauth_client_secret": "client-secret",
+    "oauth_auth_url": "https://example.com/auth/authorize",
+    "oauth_token_url": "https://example.com/auth/token",
+    "oauth_redirect_url": "http://localhost:3000/oauth/callback",
+    "oauth_profile_url": "https://example.com/api/profile",
+    "oauth_provider": "",
+    "metadata_database": "flashpoint.sqlite",
+    "auth_database": "auth.db"
+}
