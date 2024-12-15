@@ -358,16 +358,19 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
 
     println!("Reassigning game data");
 
-    // Unassign all game data
-    conn.execute("DELETE FROM game_data WHERE gameId IN rarray(?)", params![changed_ids]).context(error::SqliteSnafu)?;
-    // Reassign all game data
+    // Unassign all removed game data (if it isn't already downloaded)
+    conn.execute("DELETE FROM game_data WHERE gameId IN rarray(?) AND presentOnDisk == false", params![changed_ids]).context(error::SqliteSnafu)?;
+    // Assign all new game data
     let mut insert_game_data_stmt = conn.prepare("INSERT INTO game_data
     (gameId, title, dateAdded, sha256, crc32, presentOnDisk, path, size, parameters, applicationPath, launchCommand)
     VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(gameId, dateAdded)
+    DO UPDATE SET parameters = ?, applicationPath = ?, launchCommand = ?").context(error::SqliteSnafu)?;
     for gd in &games_res.game_data {
         insert_game_data_stmt.execute(params![gd.game_id, gd.title, gd.date_added, gd.sha_256,
-            gd.crc_32, false, "", gd.size, gd.parameters, gd.application_path, gd.launch_command])
+            gd.crc_32, false, "", gd.size, gd.parameters, gd.application_path, gd.launch_command,
+            gd.parameters, gd.application_path, gd.launch_command])
             .context(error::SqliteSnafu)?;
     }
 

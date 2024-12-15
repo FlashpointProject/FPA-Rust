@@ -253,6 +253,30 @@ pub fn get() -> Migrations<'static> {
         M::up(r#"
         UPDATE game SET playCounter = 1 WHERE playtime > 0 AND playCounter = 0;
         "#),
+        // Add unique constraint to game data table
+        M::up(r#"
+        CREATE TABLE IF NOT EXISTS "game_data_new" (
+            "id"	integer NOT NULL,
+            "gameId"	varchar,
+            "title"	varchar NOT NULL,
+            "dateAdded"	datetime NOT NULL,
+            "sha256"	varchar NOT NULL,
+            "crc32"	integer NOT NULL,
+            "presentOnDisk"	boolean NOT NULL DEFAULT (0),
+            "path"	varchar,
+            "size"	integer NOT NULL,
+            "parameters"	varchar,
+            "applicationPath"	varchar,
+            "launchCommand"	varchar,
+            PRIMARY KEY("id" AUTOINCREMENT),
+            CONSTRAINT "UQ_gameid_dateadded" UNIQUE("gameId", "dateAdded"),
+            CONSTRAINT "FK_gamedata_gameid" FOREIGN KEY("gameId") REFERENCES "game"("id") ON DELETE NO ACTION ON UPDATE NO ACTION
+        );
+        INSERT INTO game_data_new (id, gameId, title, dateAdded, sha256, crc32, presentOnDisk, path, size, parameters, applicationPath, launchCommand)
+        SELECT id, gameId, title, dateAdded, sha256, crc32, presentOnDisk, path, size, parameters, applicationPath, launchCommand FROM game_data;
+        DROP TABLE game_data;
+        ALTER TABLE game_data_new RENAME TO game_data;
+        "#),
     ]);
 
     migrations

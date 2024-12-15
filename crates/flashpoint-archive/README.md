@@ -8,6 +8,27 @@ Project website: https://flashpointarchive.org/
 
 `napi` - Adds napi-rs attrs to structs
 
+## Test
+
+- Copy test db from https://download.unstable.life/testing/flashpoint.sqlite to `crates/flashpoint-archive/benches`
+`cargo test -p flashpoint-archive`
+
+## Build
+
+`cargo build -p flashpoint-archive`
+
+Node binding:
+`cd bindings/binding-node`
+`npm install`
+- Swap for path in cargo.toml - `flashpoint-archive = { path = "../../crates/flashpoint-archive", features = ["napi"] }`
+`npm run build`
+
+Dev node binding:
+`cd bindings/binding-node`
+`npm link`
+`cd <launcher-dev-folder>`
+`npm link @fparchive/flashpoint-archive`
+
 ## Usage
 
 ### User input example
