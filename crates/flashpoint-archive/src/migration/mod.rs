@@ -278,6 +278,9 @@ pub fn get() -> Migrations<'static> {
         DROP TABLE game_data;
         ALTER TABLE game_data_new RENAME TO game_data;
         "#),
+        M::up(r#"
+            ALTER TABLE "game" ADD COLUMN "ruffleSupport" varchar NOT NULL DEFAULT '';
+        "#),
     ]);
 
     migrations

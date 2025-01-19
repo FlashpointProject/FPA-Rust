@@ -152,6 +152,7 @@ pub struct FieldFilter {
     pub language: Option<Vec<String>>,
     pub application_path: Option<Vec<String>>,
     pub launch_command: Option<Vec<String>>,
+    pub ruffle_support: Option<Vec<String>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -206,6 +207,7 @@ struct ForcedFieldFilter {
     pub language: Vec<String>,
     pub application_path: Vec<String>,
     pub launch_command: Vec<String>,
+    pub ruffle_support: Vec<String>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -282,6 +284,7 @@ impl Default for FieldFilter {
             language: None,
             application_path: None,
             launch_command: None,
+            ruffle_support: None,
         }
     }
 }
@@ -321,6 +324,7 @@ impl Default for ForcedFieldFilter {
             language: vec![],
             application_path: vec![],
             launch_command: vec![],
+            ruffle_support: vec![],
         }
     }
 }
@@ -344,9 +348,7 @@ impl Default for SizeFilter {
 
 impl Default for BoolFilter {
     fn default() -> Self {
-        return BoolFilter {
-            installed: None,
-        }
+        return BoolFilter { installed: None };
     }
 }
 
@@ -405,6 +407,9 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.whitelist.launch_command.len() > 0 {
             search.whitelist.launch_command = Some(value.whitelist.launch_command.clone());
         }
+        if value.whitelist.ruffle_support.len() > 0 {
+            search.whitelist.ruffle_support = Some(value.whitelist.ruffle_support.clone());
+        }
 
         // Blacklist
 
@@ -456,6 +461,9 @@ impl From<&ForcedGameFilter> for GameFilter {
         }
         if value.blacklist.launch_command.len() > 0 {
             search.blacklist.launch_command = Some(value.blacklist.launch_command.clone());
+        }
+        if value.blacklist.ruffle_support.len() > 0 {
+            search.blacklist.ruffle_support = Some(value.blacklist.ruffle_support.clone());
         }
 
         // Exact whitelist
@@ -511,6 +519,10 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_whitelist.launch_command =
                 Some(value.exact_whitelist.launch_command.clone());
         }
+        if value.exact_whitelist.ruffle_support.len() > 0 {
+            search.exact_whitelist.ruffle_support =
+                Some(value.exact_whitelist.ruffle_support.clone());
+        }
 
         // Exact blacklist
 
@@ -565,6 +577,10 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_blacklist.launch_command =
                 Some(value.exact_blacklist.launch_command.clone());
         }
+        if value.exact_blacklist.ruffle_support.len() > 0 {
+            search.exact_blacklist.ruffle_support =
+                Some(value.exact_blacklist.ruffle_support.clone());
+        }
 
         search.higher_than = value.higher_than.clone();
         search.lower_than = value.lower_than.clone();
@@ -606,7 +622,7 @@ const RESULTS_QUERY: &str =
 platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
 tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
 originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter \
+activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, ruffleSupport \
 FROM game";
 
 const SLIM_RESULTS_QUERY: &str =
@@ -616,7 +632,11 @@ FROM game";
 
 const TAG_FILTER_INDEX_QUERY: &str = "INSERT INTO tag_filter_index (id) SELECT game.id FROM game";
 
-pub fn search_index(conn: &Connection, search: &mut GameSearch, limit: Option<i64>) -> Result<Vec<PageTuple>> {
+pub fn search_index(
+    conn: &Connection,
+    search: &mut GameSearch,
+    limit: Option<i64>,
+) -> Result<Vec<PageTuple>> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
@@ -683,21 +703,23 @@ pub fn search_index(conn: &Connection, search: &mut GameSearch, limit: Option<i6
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
     let mut keyset = vec![];
-    debug_println!("search index query - \n{}", format_query(&query, params.clone()));
+    debug_println!(
+        "search index query - \n{}",
+        format_query(&query, params.clone())
+    );
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
         let order_val = match search.order.column {
-            GameSearchSortable::PLAYTIME |
-            GameSearchSortable::CUSTOM => 
+            GameSearchSortable::PLAYTIME | GameSearchSortable::CUSTOM => {
                 match row.get::<_, Option<i64>>(1)? {
                     Some(value) => value.to_string(),
                     None => "0".to_string(), // Handle NULL as you see fit
-                },
-            _ => 
-                match row.get::<_, Option<String>>(1)? {
-                    Some(value) => value,
-                    None => "".to_string(), // Handle NULL as you see fit
-                },
+                }
+            }
+            _ => match row.get::<_, Option<String>>(1)? {
+                Some(value) => value,
+                None => "".to_string(), // Handle NULL as you see fit
+            },
         };
         Ok(PageTuple {
             id: row.get(0)?,
@@ -727,7 +749,10 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
             + &selection;
     }
     let (query, params) = build_search_query(search, &selection);
-    debug_println!("search count query - \n{}", format_query(&query, params.clone()));
+    debug_println!(
+        "search count query - \n{}",
+        format_query(&query, params.clone())
+    );
 
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -827,14 +852,12 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 detailed_tags: None,
                 game_data: None,
                 add_apps: None,
+                ruffle_support: row.get(32)?,
             })
         },
     };
 
-
     let game_iter = stmt.query_map(params_as_refs.as_slice(), game_map_closure)?;
-
-
 
     for game in game_iter {
         let mut game: Game = game?;
@@ -915,8 +938,7 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
     // Add offset
     if let Some(offset) = search.offset.clone() {
         if search.order.column == GameSearchSortable::CUSTOM {
-            let offset_clause =
-                format!(" WHERE OrderedIDs.RowNum > ?");
+            let offset_clause = format!(" WHERE OrderedIDs.RowNum > ?");
             query.push_str(&offset_clause);
             params.insert(0, SearchParam::Integer64(coerce_to_i64(&offset.value)));
         } else {
@@ -1045,6 +1067,11 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         &filter.exact_whitelist.original_description
     );
     exact_whitelist_clause!(add_clause, "language", &filter.exact_whitelist.language);
+    exact_whitelist_clause!(
+        add_clause,
+        "ruffleSupport",
+        &filter.exact_whitelist.ruffle_support
+    );
 
     // exact blacklist
     exact_blacklist_clause!(add_clause, "library", &filter.exact_blacklist.library);
@@ -1061,6 +1088,11 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         &filter.exact_blacklist.original_description
     );
     exact_blacklist_clause!(add_clause, "language", &filter.exact_blacklist.language);
+    exact_blacklist_clause!(
+        add_clause,
+        "ruffleSupport",
+        &filter.exact_blacklist.ruffle_support
+    );
 
     // whitelist
     whitelist_clause!(add_clause, "library", &filter.whitelist.library);
@@ -1077,6 +1109,11 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         &filter.whitelist.original_description
     );
     whitelist_clause!(add_clause, "language", &filter.whitelist.language);
+    whitelist_clause!(
+        add_clause,
+        "ruffleSupport",
+        &filter.whitelist.ruffle_support
+    );
 
     // blacklist
     blacklist_clause!(add_clause, "library", &filter.blacklist.library);
@@ -1093,49 +1130,52 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         &filter.blacklist.original_description
     );
     blacklist_clause!(add_clause, "language", &filter.blacklist.language);
+    blacklist_clause!(
+        add_clause,
+        "ruffleSupport",
+        &filter.blacklist.ruffle_support
+    );
 
-    let mut id_clause =
-        |values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
-            if let Some(value_list) = values {
-                if exact {
-                    // All game ids are exact, AND would be impossible to satisfy, treat as OR, always
-                    let comparator = match blacklist {
-                        true => "NOT IN",
-                        false => "IN"
-                    };
-                    where_clauses.push(format!("(game.id {} rarray(?) OR game.id {} (SELECT id FROM game_redirect WHERE sourceId IN rarray(?)))", comparator, comparator));
-                    params.push(SearchParam::StringVec(value_list.clone()));
-                    params.push(SearchParam::StringVec(value_list.clone())); 
-                } else {
-                    for value in value_list {
-                        if value.len() == 36 {
-                            let comparator = match blacklist {
-                                true => "!=",
-                                false => "="
-                            };
-                            where_clauses.push(format!("(game.id {} ? OR game.id {} (SELECT id FROM game_redirect WHERE sourceId = ? LIMIT 1))", comparator, comparator));
-                            
-                            params.push(SearchParam::String(value.clone()));
-                            params.push(SearchParam::String(value.clone()));
-                        } else {
-                            let comparator = match blacklist {
-                                true => "NOT LIKE",
-                                false => "LIKE"
-                            };
-                            where_clauses.push(format!("(game.id {} ?)", comparator));
-                            let p = format!("%{}%", value);
-                            params.push(SearchParam::String(p));                        }
+    let mut id_clause = |values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
+        if let Some(value_list) = values {
+            if exact {
+                // All game ids are exact, AND would be impossible to satisfy, treat as OR, always
+                let comparator = match blacklist {
+                    true => "NOT IN",
+                    false => "IN",
+                };
+                where_clauses.push(format!("(game.id {} rarray(?) OR game.id {} (SELECT id FROM game_redirect WHERE sourceId IN rarray(?)))", comparator, comparator));
+                params.push(SearchParam::StringVec(value_list.clone()));
+                params.push(SearchParam::StringVec(value_list.clone()));
+            } else {
+                for value in value_list {
+                    if value.len() == 36 {
+                        let comparator = match blacklist {
+                            true => "!=",
+                            false => "=",
+                        };
+                        where_clauses.push(format!("(game.id {} ? OR game.id {} (SELECT id FROM game_redirect WHERE sourceId = ? LIMIT 1))", comparator, comparator));
+
+                        params.push(SearchParam::String(value.clone()));
+                        params.push(SearchParam::String(value.clone()));
+                    } else {
+                        let comparator = match blacklist {
+                            true => "NOT LIKE",
+                            false => "LIKE",
+                        };
+                        where_clauses.push(format!("(game.id {} ?)", comparator));
+                        let p = format!("%{}%", value);
+                        params.push(SearchParam::String(p));
                     }
                 }
-
             }
-        };
-    
+        }
+    };
+
     id_clause(&filter.exact_whitelist.id, true, false);
     id_clause(&filter.exact_blacklist.id, true, true);
     id_clause(&filter.whitelist.id, false, false);
     id_clause(&filter.blacklist.id, false, false);
-
 
     let mut add_tagged_clause =
         |tag_name: &str, values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
@@ -1234,8 +1274,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             tag_name,
                             inner_tag_queries.join(" OR ")
                         ),
-                        (true, true) |
-                        (false, true) => format!(
+                        (true, true) | (false, true) => format!(
                             "game.id {} (SELECT gameId FROM game_{}s_{} WHERE {}Id IN (
                     SELECT {}Id FROM {}_alias WHERE name IN {}))",
                             comparator,
@@ -1373,7 +1412,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             let p = format!("%{}%", value);
                             params.push(SearchParam::String(p));
                         }
-    
+
                         value_clauses.push(format!(
                             "game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)",
                             field_name, comparator
@@ -1397,7 +1436,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             let p = format!("%{}%", value);
                             params.push(SearchParam::String(p));
                         }
-    
+
                         value_clauses.push(format!(
                             "game.id IN (SELECT gameId FROM game_data WHERE {} {} ?)",
                             field_name, comparator
@@ -1650,22 +1689,14 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         KeyChar::EQUALS,
         &filter.equal_to.date_modified,
     );
-    
-    add_compare_dates_clause(
-        "lastPlayed",
-        KeyChar::LOWER,
-        &filter.lower_than.last_played,
-    );
+
+    add_compare_dates_clause("lastPlayed", KeyChar::LOWER, &filter.lower_than.last_played);
     add_compare_dates_clause(
         "lastPlayed",
         KeyChar::HIGHER,
         &filter.higher_than.last_played,
     );
-    add_compare_dates_clause(
-        "lastPlayed",
-        KeyChar::EQUALS,
-        &filter.equal_to.last_played,
-    );
+    add_compare_dates_clause("lastPlayed", KeyChar::EQUALS, &filter.equal_to.last_played);
 
     let mut add_compare_dates_string_clause =
         |date_field: &str, comparator: KeyChar, filter: &Option<String>| {
@@ -1707,37 +1738,44 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
     );
 
     let mut add_compare_counter_clause =
-    |counter: &str, comparator: KeyChar, filter: &Option<i64>| {
-        if let Some(f) = filter {
-            match comparator {
-                KeyChar::MATCHES => (),
-                KeyChar::LOWER => {
-                    where_clauses.push(format!("game.{} < ?", counter));
-                    params.push(SearchParam::Integer64(f.clone()));
-                }
-                KeyChar::HIGHER => {
-                    where_clauses.push(format!("game.{} > ?", counter));
-                    params.push(SearchParam::Integer64(f.clone()));
-                }
-                KeyChar::EQUALS => {
-                    where_clauses.push(format!("game.{} = ?", counter));
-                    params.push(SearchParam::Integer64(f.clone()));
+        |counter: &str, comparator: KeyChar, filter: &Option<i64>| {
+            if let Some(f) = filter {
+                match comparator {
+                    KeyChar::MATCHES => (),
+                    KeyChar::LOWER => {
+                        where_clauses.push(format!("game.{} < ?", counter));
+                        params.push(SearchParam::Integer64(f.clone()));
+                    }
+                    KeyChar::HIGHER => {
+                        where_clauses.push(format!("game.{} > ?", counter));
+                        params.push(SearchParam::Integer64(f.clone()));
+                    }
+                    KeyChar::EQUALS => {
+                        where_clauses.push(format!("game.{} = ?", counter));
+                        params.push(SearchParam::Integer64(f.clone()));
+                    }
                 }
             }
-        }
-    };
+        };
 
     add_compare_counter_clause("playtime", KeyChar::LOWER, &filter.lower_than.playtime);
     add_compare_counter_clause("playtime", KeyChar::HIGHER, &filter.higher_than.playtime);
     add_compare_counter_clause("playtime", KeyChar::EQUALS, &filter.equal_to.playtime);
 
     add_compare_counter_clause("playCounter", KeyChar::LOWER, &filter.lower_than.playcount);
-    add_compare_counter_clause("playCounter", KeyChar::HIGHER, &filter.higher_than.playcount);
+    add_compare_counter_clause(
+        "playCounter",
+        KeyChar::HIGHER,
+        &filter.higher_than.playcount,
+    );
     add_compare_counter_clause("playCounter", KeyChar::EQUALS, &filter.equal_to.playcount);
 
     // Installed clause
     if let Some(val) = filter.bool_comp.installed {
-        where_clauses.push("game.id IN (SELECT gameId FROM game_data WHERE game_data.presentOnDisk = ?)".to_owned());
+        where_clauses.push(
+            "game.id IN (SELECT gameId FROM game_data WHERE game_data.presentOnDisk = ?)"
+                .to_owned(),
+        );
         params.push(SearchParam::Boolean(val));
     }
 
@@ -1764,10 +1802,10 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
             '(' => {
                 if idx + 1 < query.len() {
                     let next: String = query.chars().skip(idx + 1).take(1).collect();
-                    if vec![")", "*"].contains(&next.as_str())  {
+                    if vec![")", "*"].contains(&next.as_str()) {
                         formatted_query.push(ch);
                         skip_drop = true;
-                        continue
+                        continue;
                     }
                 }
                 indent += 4;
@@ -1779,7 +1817,7 @@ fn format_query(query: &str, substitutions: Vec<SearchParam>) -> String {
                 if skip_drop {
                     skip_drop = false;
                     formatted_query.push(ch);
-                    continue
+                    continue;
                 }
                 trim_mode = false;
                 indent -= 4;
@@ -1831,7 +1869,8 @@ pub fn new_custom_id_order(conn: &Connection, custom_id_order: Vec<String>) -> R
 }
 
 // Dumb replacment string to denote an 'empty' value
-const REPLACEMENT: &str = "UIOWHDYUAWDGBAWYUODIGAWYUIDIAWGHDYUI8AWGHDUIAWDHNAWUIODHJNAWIOUDHJNAWOUIDAJNWMLDK";
+const REPLACEMENT: &str =
+    "UIOWHDYUAWDGBAWYUODIGAWYUIDIAWGHDYUI8AWGHDUIAWDHNAWUIODHJNAWIOUDHJNAWOUIDAJNWMLDK";
 
 pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Result<()> {
     // Allow use of rarray() in SQL queries
@@ -1890,7 +1929,10 @@ pub fn new_tag_filter_index(conn: &Connection, search: &mut GameSearch) -> Resul
     let params_as_refs: Vec<&dyn rusqlite::ToSql> =
         params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-        debug_println!("new filtered tag query - \n{}", format_query(&query, params.clone()));
+    debug_println!(
+        "new filtered tag query - \n{}",
+        format_query(&query, params.clone())
+    );
 
     let mut stmt = conn.prepare(query.as_str())?;
     stmt.execute(params_as_refs.as_slice())?;
@@ -1918,7 +1960,7 @@ pub enum ElementType {
     MODIFIER,
     KEY,
     KEYCHAR,
-    VALUE
+    VALUE,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -2012,7 +2054,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                         });
                         token_start += 1;
                     }
-                    _ => ()
+                    _ => (),
                 }
             }
         }
@@ -2059,7 +2101,11 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                     // Has a key
                     debug_println!("key {:?}", &token_parts[0]);
                     working_key = token_parts[0].to_owned();
-                    token = token_parts.into_iter().skip(1).collect::<Vec<&str>>().join(&s);
+                    token = token_parts
+                        .into_iter()
+                        .skip(1)
+                        .collect::<Vec<&str>>()
+                        .join(&s);
                     debug_println!("value {:?}", &token);
                     positions.push(ElementPosition {
                         element: ElementType::KEY,
@@ -2109,10 +2155,8 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                 } else {
                     if let Some(kc) = &working_key_char {
                         match kc {
-                            KeyChar::EQUALS => {
-                                exact = true
-                            }
-                            _ => ()
+                            KeyChar::EQUALS => exact = true,
+                            _ => (),
                         }
                     }
                 }
@@ -2156,7 +2200,9 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
             let mut processed: bool = true;
             match working_key.to_lowercase().as_str() {
                 "installed" => {
-                    let mut value = !(working_value.to_lowercase() == "no" && working_value.to_lowercase() == "false" && working_value.to_lowercase() == "0");
+                    let mut value = !(working_value.to_lowercase() == "no"
+                        && working_value.to_lowercase() == "false"
+                        && working_value.to_lowercase() == "0");
                     if negative {
                         value = !value;
                     }
@@ -2181,7 +2227,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                 "dateadded" | "da" => {
                                     filter.lower_than.date_added = Some(working_value.clone())
                                 }
-                                "datemodified" |"dm" => {
+                                "datemodified" | "dm" => {
                                     filter.lower_than.date_modified = Some(working_value.clone())
                                 }
                                 "releasedate" | "rd" => {
@@ -2193,7 +2239,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                 "playcount" | "pc" => filter.lower_than.playcount = Some(value),
                                 "lastplayed" | "lp" => {
                                     filter.lower_than.last_played = Some(working_value.clone())
-                                },
+                                }
                                 _ => {
                                     processed = false;
                                 }
@@ -2219,7 +2265,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                 "playcount" | "pc" => filter.higher_than.playcount = Some(value),
                                 "lastplayed" | "lp" => {
                                     filter.higher_than.last_played = Some(working_value.clone())
-                                },
+                                }
                                 _ => {
                                     processed = false;
                                 }
@@ -2230,7 +2276,9 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                             match working_key.to_lowercase().as_str() {
                                 "tags" => filter.equal_to.tags = Some(value),
                                 "platforms" => filter.equal_to.platforms = Some(value),
-                                "dateadded" | "da" => filter.equal_to.date_added = Some(working_value.clone()),
+                                "dateadded" | "da" => {
+                                    filter.equal_to.date_added = Some(working_value.clone())
+                                }
                                 "datemodified" | "dm" => {
                                     filter.equal_to.date_modified = Some(working_value.clone())
                                 }
@@ -2243,7 +2291,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                 "playcount" | "pc" => filter.equal_to.playcount = Some(value),
                                 "lastplayed" | "lp" => {
                                     filter.equal_to.last_played = Some(working_value.clone())
-                                },
+                                }
                                 _ => {
                                     processed = false;
                                 }
@@ -2275,6 +2323,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                     "lang" | "language" => list.language.push(value),
                     "ap" | "path" | "app" | "applicationpath" => list.application_path.push(value),
                     "lc" | "launchcommand" => list.launch_command.push(value),
+                    "ruffle" | "rufflesupport" => list.ruffle_support.push(value.to_lowercase()),
                     _ => match &working_key_char {
                         Some(kc) => {
                             let ks: String = kc.clone().into();
@@ -2302,10 +2351,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
 
     search.filter = (&filter).into();
 
-    ParsedInput {
-        search,
-        positions,
-    }
+    ParsedInput { search, positions }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2363,9 +2409,11 @@ fn coerce_to_i64(input: &str) -> i64 {
 
     // Insert '+' between consecutive time values (e.g., "1h30m" becomes "1h+30m")
     let insert_plus_re = Regex::new(r"(\d+)([yMwdhm])(?=\d)").unwrap();
-    let mut processed_input = insert_plus_re.replace_all(&input, |caps: &Captures| {
-        format!("{}{}+", &caps[1], &caps[2])
-    }).to_string();
+    let mut processed_input = insert_plus_re
+        .replace_all(&input, |caps: &Captures| {
+            format!("{}{}+", &caps[1], &caps[2])
+        })
+        .to_string();
 
     let time_units = vec![
         ("y", 31_536_000), // years
@@ -2381,10 +2429,12 @@ fn coerce_to_i64(input: &str) -> i64 {
     for (unit, seconds) in time_units {
         let pattern = format!(r"(\d+){}", unit);
         let re = Regex::new(&pattern).unwrap();
-        processed_input = re.replace_all(&processed_input, |caps: &Captures| {
-            let time_value: i64 = caps[1].parse().unwrap_or(0); // Convert the captured group to i64
-            (time_value * seconds).to_string() // Replace with time_value * seconds per unit
-        }).to_string();
+        processed_input = re
+            .replace_all(&processed_input, |caps: &Captures| {
+                let time_value: i64 = caps[1].parse().unwrap_or(0); // Convert the captured group to i64
+                (time_value * seconds).to_string() // Replace with time_value * seconds per unit
+            })
+            .to_string();
     }
 
     // Evaluate the mathematical expression we've made

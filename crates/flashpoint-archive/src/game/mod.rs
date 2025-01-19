@@ -1,11 +1,11 @@
 use chrono::Utc;
 use rusqlite::{
     params,
-    types::{FromSql, FromSqlError, ValueRef, Value},
-    Connection, OptionalExtension, Result,
+    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef},
+    Connection, OptionalExtension, Result, ToSql,
 };
 use uuid::Uuid;
-use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
+use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, str::FromStr, vec::Vec};
 
 use crate::{tag::{Tag, self}, platform::{self, PlatformAppPath}, game_data::{GameData, PartialGameData}};
 
@@ -253,6 +253,7 @@ pub struct Game {
     pub archive_state: i64,
     pub game_data: Option<Vec<GameData>>,
     pub add_apps: Option<Vec<AdditionalApp>>,
+    pub ruffle_support: RuffleSupport,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -292,6 +293,53 @@ pub struct PartialGame {
     pub active_game_config_owner: Option<String>,
     pub archive_state: Option<i64>,
     pub add_apps: Option<Vec<AdditionalApp>>,
+    pub ruffle_support: Option<RuffleSupport>,
+}
+
+#[cfg_attr(feature = "napi", napi(string_enum))]
+#[cfg_attr(not(feature = "napi"), derive(Clone))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug)]
+pub enum RuffleSupport {
+    None,
+    Standalone,
+    Webhosted,
+}
+
+impl ToString for RuffleSupport {
+    fn to_string(&self) -> String {
+        match self {
+            RuffleSupport::None => "".to_string(),
+            RuffleSupport::Standalone => "standalone".to_string(),
+            RuffleSupport::Webhosted => "webhosted".to_string(),
+        }
+    }
+}
+
+impl FromStr for RuffleSupport {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Ok(RuffleSupport::None),
+            "standalone" => Ok(RuffleSupport::Standalone),
+            "webhosted" => Ok(RuffleSupport::Webhosted),
+            _ => Err(format!("Invalid RuffleSupport value: {}", s)),
+        }
+    }
+}
+
+impl ToSql for RuffleSupport {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(self.to_string().into())
+    }
+}
+
+impl FromSql for RuffleSupport {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_str()?.parse()
+            .map_err(|_| FromSqlError::InvalidType)
+    }
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -319,7 +367,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
         platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
         tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
         originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-        activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter \
+        activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, ruffleSupport \
         FROM game WHERE id = COALESCE((SELECT id FROM game_redirect WHERE sourceId = ?), ?)",
     )?;
 
@@ -362,6 +410,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
                 detailed_tags: None,
                 game_data: None,
                 add_apps: None,
+                ruffle_support: row.get(32)?,
             })
         })
         .optional()?; // Converts rusqlite::Error::QueryReturnedNoRows to None
@@ -405,8 +454,8 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
          platformName, platformsStr, dateAdded, dateModified, broken, extreme, playMode, status, \
          notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
          originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-         activeGameConfigId, activeGameConfigOwner, archiveState, orderTitle) VALUES (?, ?, ?, ?, ?, ?, ?, \
-         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')",
+         activeGameConfigId, activeGameConfigOwner, archiveState, orderTitle, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?, \
+         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)",
         params![
             &game.id,
             &game.library,
@@ -439,6 +488,7 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
             &game.active_game_config_id,
             &game.active_game_config_owner,
             &game.archive_state,
+            &game.ruffle_support,
         ],
     )?;
 
@@ -511,7 +561,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
              applicationPath = ?, launchCommand = ?, releaseDate = ?, version = ?, \
              originalDescription = ?, language = ?, activeDataId = ?, activeDataOnDisk = ?, \
              lastPlayed = ?, playtime = ?, playCounter = ?, activeGameConfigId = ?, activeGameConfigOwner = ?, \
-             archiveState = ? WHERE id = ?",
+             archiveState = ?, ruffleSupport = ? WHERE id = ?",
             params![
                 &existing_game.library,
                 &existing_game.title,
@@ -544,6 +594,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
                 &existing_game.active_game_config_id,
                 &existing_game.active_game_config_owner,
                 &existing_game.archive_state,
+                &existing_game.ruffle_support,
                 &existing_game.id,
             ],
         )?;
@@ -1100,6 +1151,7 @@ impl Default for PartialGame {
             active_game_config_owner: None,
             archive_state: None,
             add_apps: None,
+            ruffle_support: None,
         }
     }
 }
@@ -1143,6 +1195,7 @@ impl Default for Game {
             archive_state: 0,
             game_data: None,
             add_apps: None,
+            ruffle_support: RuffleSupport::None,
         }
     }
 }
@@ -1283,6 +1336,10 @@ impl Game {
         if let Some(archive_state) = source.archive_state {
             self.archive_state = archive_state;
         }
+
+        if let Some(ruffle_support) = source.ruffle_support.clone() {
+            self.ruffle_support = ruffle_support;
+        }
     }
 }
 
@@ -1336,6 +1393,7 @@ impl From<Game> for PartialGame {
             active_game_config_owner: game.active_game_config_owner,
             archive_state: Some(game.archive_state),
             add_apps: game.add_apps,
+            ruffle_support: Some(game.ruffle_support),
         }
     }
 }

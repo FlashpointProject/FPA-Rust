@@ -1,6 +1,6 @@
 [package]
 name = "flashpoint-archive"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 license = "MIT"
 keywords = ["webgames", "archive", "flashpoint"]
@@ -29,7 +29,7 @@ lazy_static = "1.4.0"
 meval = "0.2"
 fancy-regex = "0.13"
 
-[dev_dependencies]
+[dev-dependencies]
 criterion = { version = "0.5.1", features = ["async_tokio"] }
 
 [features]
