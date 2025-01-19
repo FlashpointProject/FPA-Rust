@@ -272,6 +272,7 @@ pub fn get() -> Migrations<'static> {
             CONSTRAINT "UQ_gameid_dateadded" UNIQUE("gameId", "dateAdded"),
             CONSTRAINT "FK_gamedata_gameid" FOREIGN KEY("gameId") REFERENCES "game"("id") ON DELETE NO ACTION ON UPDATE NO ACTION
         );
+        DELETE FROM game_data WHERE gameId IS NOT NULL AND gameId NOT IN (SELECT id FROM game);
         INSERT INTO game_data_new (id, gameId, title, dateAdded, sha256, crc32, presentOnDisk, path, size, parameters, applicationPath, launchCommand)
         SELECT id, gameId, title, dateAdded, sha256, crc32, presentOnDisk, path, size, parameters, applicationPath, launchCommand FROM game_data;
         DROP TABLE game_data;
