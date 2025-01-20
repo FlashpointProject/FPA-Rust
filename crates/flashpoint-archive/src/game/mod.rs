@@ -1,11 +1,11 @@
 use chrono::Utc;
 use rusqlite::{
     params,
-    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef},
-    Connection, OptionalExtension, Result, ToSql,
+    types::{FromSql, FromSqlError, Value, ValueRef},
+    Connection, OptionalExtension, Result,
 };
 use uuid::Uuid;
-use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, str::FromStr, vec::Vec};
+use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
 
 use crate::{tag::{Tag, self}, platform::{self, PlatformAppPath}, game_data::{GameData, PartialGameData}};
 
@@ -253,7 +253,7 @@ pub struct Game {
     pub archive_state: i64,
     pub game_data: Option<Vec<GameData>>,
     pub add_apps: Option<Vec<AdditionalApp>>,
-    pub ruffle_support: RuffleSupport,
+    pub ruffle_support: String,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -293,53 +293,7 @@ pub struct PartialGame {
     pub active_game_config_owner: Option<String>,
     pub archive_state: Option<i64>,
     pub add_apps: Option<Vec<AdditionalApp>>,
-    pub ruffle_support: Option<RuffleSupport>,
-}
-
-#[cfg_attr(feature = "napi", napi(string_enum))]
-#[cfg_attr(not(feature = "napi"), derive(Clone))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug)]
-pub enum RuffleSupport {
-    None,
-    Standalone,
-    Webhosted,
-}
-
-impl ToString for RuffleSupport {
-    fn to_string(&self) -> String {
-        match self {
-            RuffleSupport::None => "".to_string(),
-            RuffleSupport::Standalone => "standalone".to_string(),
-            RuffleSupport::Webhosted => "webhosted".to_string(),
-        }
-    }
-}
-
-impl FromStr for RuffleSupport {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "" => Ok(RuffleSupport::None),
-            "standalone" => Ok(RuffleSupport::Standalone),
-            "webhosted" => Ok(RuffleSupport::Webhosted),
-            _ => Err(format!("Invalid RuffleSupport value: {}", s)),
-        }
-    }
-}
-
-impl ToSql for RuffleSupport {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.to_string().into())
-    }
-}
-
-impl FromSql for RuffleSupport {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_str()?.parse()
-            .map_err(|_| FromSqlError::InvalidType)
-    }
+    pub ruffle_support: Option<String>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -1195,7 +1149,7 @@ impl Default for Game {
             archive_state: 0,
             game_data: None,
             add_apps: None,
-            ruffle_support: RuffleSupport::None,
+            ruffle_support: String::default(),
         }
     }
 }
