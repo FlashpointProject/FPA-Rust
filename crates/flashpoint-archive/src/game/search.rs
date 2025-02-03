@@ -688,7 +688,7 @@ pub fn search_index(
             FROM custom_id_order
         ) 
         SELECT game.id, OrderedIDs.RowNum, game.title, ROW_NUMBER() OVER (ORDER BY OrderedIDs.RowNum, game.title, game.id) AS rn FROM game".to_owned(),
-        _ => format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction)
+        _ => format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} COLLATE NOCASE {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction)
     };
     let (mut query, mut params) = build_search_query(search, &selection);
 
@@ -944,10 +944,10 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
         } else {
             let offset_clause = match search.order.direction {
                 GameSearchDirection::ASC => {
-                    format!(" WHERE ({}, game.title, game.id) > (?, ?, ?)", order_column)
+                    format!(" WHERE ({} COLLATE NOCASE, game.title, game.id) > (?, ?, ?)", order_column)
                 }
                 GameSearchDirection::DESC => {
-                    format!(" WHERE ({}, game.title, game.id) < (?, ?, ?)", order_column)
+                    format!(" WHERE ({} COLLATE NOCASE, game.title, game.id) < (?, ?, ?)", order_column)
                 }
             };
             query.push_str(&offset_clause);
@@ -978,12 +978,10 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
     } else {
         if search.order.column == GameSearchSortable::CUSTOM {
             query.push_str(" ORDER BY OrderedIDs.RowNum");
-        } else if order_column == "game.title" {
-            query.push_str(format!(" ORDER BY game.title {}", order_direction).as_str());
         } else {
             query.push_str(
                 format!(
-                    " ORDER BY {} {}, game.title {}",
+                    " ORDER BY {} COLLATE NOCASE {}, game.title {}",
                     order_column, order_direction, order_direction
                 )
                 .as_str(),
