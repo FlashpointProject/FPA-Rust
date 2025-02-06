@@ -1035,7 +1035,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             params.push(SearchParam::String(p));
                         }
                     }
-                    where_clauses.push(format!("({})", inner_clauses.join(" OR ")));
+                    where_clauses.push(format!("({})", inner_clauses.join(" AND ")));
                 } else {
                     for value in value_list {
                         where_clauses.push(format!("game.{} {} ?", field_name, comparator));
@@ -1421,7 +1421,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
                             let p = format!("%{}%", value);
                             params.push(SearchParam::String(p));
                         }
-                        inner_clauses.push(format!("({})", &value_clauses.join(" OR ")));
+                        inner_clauses.push(format!("({})", &value_clauses.join(" AND ")));
                     }
                     where_clauses.push(format!("({})", inner_clauses.join(" OR ")));
                 } else {
