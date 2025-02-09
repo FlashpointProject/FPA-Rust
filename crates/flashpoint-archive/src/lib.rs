@@ -33,6 +33,8 @@ extern crate napi_derive;
 
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
+pub const MAX_SEARCH: i64 = 99999999999;
+
 lazy_static! {
     static ref LOGGER: Arc<EventManager> = EventManager::new();
 }
@@ -352,21 +354,21 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn find_all_game_developers(&self) -> Result<Vec<String>> {
+    pub async fn find_all_game_developers(&self, search: Option<GameSearch>) -> Result<Vec<String>> {
         with_connection!(&self.pool, |conn| {
-            game::find_developers(conn).context(error::SqliteSnafu)
+            game::find_developers(conn, search).context(error::SqliteSnafu)
         })
     }
 
-    pub async fn find_all_game_publishers(&self) -> Result<Vec<String>> {
+    pub async fn find_all_game_publishers(&self, search: Option<GameSearch>) -> Result<Vec<String>> {
         with_connection!(&self.pool, |conn| {
-            game::find_publishers(conn).context(error::SqliteSnafu)
+            game::find_publishers(conn, search).context(error::SqliteSnafu)
         })
     }
 
-    pub async fn find_all_game_series(&self) -> Result<Vec<String>> {
+    pub async fn find_all_game_series(&self, search: Option<GameSearch>) -> Result<Vec<String>> {
         with_connection!(&self.pool, |conn| {
-            game::find_series(conn).context(error::SqliteSnafu)
+            game::find_series(conn, search).context(error::SqliteSnafu)
         })
     }
 
@@ -623,7 +625,7 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
-        search.limit = 99999999999;
+        search.limit = MAX_SEARCH;
         search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
         let result = flashpoint.search_games(&search).await;
         assert!(result.is_ok());
@@ -637,7 +639,7 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
-        search.limit = 99999999999;
+        search.limit = MAX_SEARCH;
         search.filter.match_any = true;
         search.filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
         let result = flashpoint.search_games(&search).await;
@@ -652,7 +654,7 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
         let mut search = game::search::GameSearch::default();
-        search.limit = 99999999999;
+        search.limit = MAX_SEARCH;
         search.filter.match_any = false;
         search.filter.exact_whitelist.tags = Some(vec!["Action".to_owned(), "Adventure".to_owned()]);
         let result = flashpoint.search_games(&search).await;

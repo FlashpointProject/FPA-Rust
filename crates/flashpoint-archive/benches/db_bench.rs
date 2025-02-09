@@ -1,6 +1,6 @@
 use std::{fs::File, io::{BufReader, BufRead}, time::Duration};
 use criterion::{Criterion, criterion_group, criterion_main};
-use flashpoint_archive::{FlashpointArchive, game::search::GameFilter};
+use flashpoint_archive::{FlashpointArchive, game::search::GameFilter, MAX_SEARCH};
 use flashpoint_archive::game::search::GameSearch;
 use tokio::runtime::Runtime;
 
@@ -54,7 +54,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("full scan", |b| {
         b.to_async(Runtime::new().unwrap()).iter(|| async {
             let mut search = GameSearch::default();
-            search.limit = 99999999999;
+            search.limit = MAX_SEARCH;
             search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
             flashpoint.search_games(&search).await.expect("Failed to search");
         })
@@ -63,7 +63,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("full scan with unoptimized tag filter groups", |b| {
         b.to_async(Runtime::new().unwrap()).iter(|| async {
             let mut search = GameSearch::default();
-            search.limit = 99999999999;
+            search.limit = MAX_SEARCH;
             let mut tag_filter = GameFilter::default();
             tag_filter.exact_blacklist.tags = Some(blacklist_tags.clone());
             tag_filter.match_any = true;
@@ -88,7 +88,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.to_async(Runtime::new().unwrap()).iter(|| async{
             for search_term in &search_terms {
                 let mut search = GameSearch::default();
-                search.limit = 99999999999;
+                search.limit = MAX_SEARCH;
                 search.filter.whitelist.title = Some(vec![search_term.clone()]);
                 search.filter.exact_whitelist.library = Some(vec![String::from("arcade")]);
                 flashpoint.search_games(&search).await.expect("Failed to search");
@@ -112,7 +112,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("get_all_developers", |b| {
         b.to_async(Runtime::new().unwrap()).iter(|| async {
-            flashpoint.find_all_game_developers().await.expect("Failed to get developers");
+            flashpoint.find_all_game_developers(None).await.expect("Failed to get developers");
         })
     });
 

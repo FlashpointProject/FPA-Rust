@@ -4,10 +4,11 @@ use rusqlite::{
     types::{FromSql, FromSqlError, Value, ValueRef},
     Connection, OptionalExtension, Result,
 };
+use unicase::UniCase;
 use uuid::Uuid;
 use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
 
-use crate::{tag::{Tag, self}, platform::{self, PlatformAppPath}, game_data::{GameData, PartialGameData}};
+use crate::{game_data::{GameData, PartialGameData}, platform::{self, PlatformAppPath}, tag::{self, Tag}, MAX_SEARCH};
 
 use self::search::{mark_index_dirty, GameSearch, GameSearchRelations};
 
@@ -827,57 +828,66 @@ pub fn find_with_tag(conn: &Connection, tag: &str) -> Result<Vec<Game>> {
         add_apps: true,
     };
     search.filter.exact_whitelist.tags = Some(vec![tag.to_owned()]);
-    search.limit = 9999999999;
+    search.limit = MAX_SEARCH;
     search::search(conn, &search)
 }
 
-pub fn find_developers(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT DISTINCT developer FROM game")?;
-    let dev_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
+pub fn find_split_string_col(conn: &Connection, column: &str, search_opt: Option<GameSearch>) -> Result<Vec<String>> {
+    let map_closure = |row: &rusqlite::Row<'_>| row.get::<_, String>(0);
+    let selection= format!("SELECT DISTINCT {} FROM game", column);
+    let dev_iter: Vec<String> = match search_opt {
+        None => {
+            let mut stmt = conn.prepare(&selection)?;
+            let mapped_rows = stmt.query_map((), map_closure)?;
+            mapped_rows
+                .map(|result| result.map_err(|e| e.into()))
+                .collect::<Result<Vec<String>>>()?
+        },
+        Some(mut search_data) => {
+            search_data.limit = MAX_SEARCH;
+            search_data.load_relations = GameSearchRelations::default();
+            search::search_custom(conn, &search_data, &selection, map_closure)?
+        }
+    };
 
-    let mut developers_set = HashSet::new();
-
-    for developer in dev_iter {
-        let developer = developer?;
-        for dev in developer.split(';') {
-            developers_set.insert(dev.trim().to_string());
+    let mut data_set: HashSet<UniCase<String>> = HashSet::new();
+        
+    for row in dev_iter {
+        for data in row.split(|c| c == ';' || c == ',') {
+            data_set.insert(UniCase::new(data.trim().to_string()));
         }
     }
 
-    let developers: Vec<String> = developers_set.into_iter().collect();
+    let data: Vec<String> = data_set.into_iter().map(|unicase| unicase.into_inner()).collect();
 
-    Ok(developers)
+    Ok(data)
 }
 
-pub fn find_publishers(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT DISTINCT publisher FROM game")?;
-    let dev_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
+pub fn find_developers(conn: &Connection, search_opt: Option<GameSearch>) -> Result<Vec<String>> {
+    find_split_string_col(conn, "developer", search_opt)
+}
 
-    let mut publishers_set = HashSet::new();
+pub fn find_publishers(conn: &Connection, search_opt: Option<GameSearch>) -> Result<Vec<String>> {
+    find_split_string_col(conn, "publisher", search_opt)
+}
 
-    for publisher in dev_iter {
-        let publisher = publisher?;
-        for dev in publisher.split(';') {
-            publishers_set.insert(dev.trim().to_string());
+pub fn find_series(conn: &Connection, search_opt: Option<GameSearch>) -> Result<Vec<String>> {
+    let map_closure = |row: &rusqlite::Row<'_>| row.get::<_, String>(0);
+    let selection = "SELECT DISTINCT series FROM game";
+    match search_opt {
+        None => {
+            let mut stmt = conn.prepare(selection)?;
+            let mapped_rows = stmt.query_map((), map_closure)?;
+            Ok(mapped_rows
+                .map(|result| result.map_err(|e| e.into()))
+                .collect::<Result<Vec<String>>>()?)
+        },
+        Some(mut search_data) => {
+            search_data.limit = MAX_SEARCH;
+            search_data.load_relations = GameSearchRelations::default();
+            Ok(search::search_custom(conn, &search_data, selection, map_closure)?)
         }
     }
-
-    let publishers: Vec<String> = publishers_set.into_iter().collect();
-
-    Ok(publishers)
-}
-
-pub fn find_series(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT DISTINCT series FROM game")?;
-    let series_iter = stmt.query_map((), |row| row.get::<_, String>(0))?;
-
-    let mut seriesss = vec![];
-
-    for series in series_iter {
-        seriesss.push(series?);
-    }
-
-    Ok(seriesss)
 }
 
 pub fn find_libraries(conn: &Connection) -> Result<Vec<String>> {

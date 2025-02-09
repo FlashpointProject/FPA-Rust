@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "flashpoint-archive"
-version = "0.10.3"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a186ef8f211908f07551333e1b53dd3d4c9b7cb85aaaab817a5dba72ef22d802"
+checksum = "1d4932983f7ae4733ab444eb53e543882729e746a5f2f7a3b9ea7521483234ec"
 dependencies = [
  "chrono",
  "fancy-regex",
@@ -225,6 +225,7 @@ dependencies = [
  "rusqlite_migration",
  "snafu",
  "tokio",
+ "unicase",
  "uuid",
 ]
 
@@ -791,6 +792,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b844d17643ee918803943289730bec8aac480150456169e647ed0b576ba539"
 
 [[package]]
 name = "unicode-ident"

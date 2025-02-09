@@ -769,11 +769,39 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
     }
 }
 
-// The search function that takes a connection and a GameSearch object
-pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
+pub fn search_custom<T, F>(
+    conn: &Connection,
+    search: &GameSearch,
+    selection: &str,
+    game_map_closure: F,
+) -> Result<Vec<T>>
+where
+    F: Fn(&rusqlite::Row<'_>) -> Result<T>,
+{
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn)?;
 
+    let (query, params) = build_search_query(search, selection);
+    debug_println!("search query - \n{}", format_query(&query, params.clone()));
+
+    // Convert the parameters array to something rusqlite understands
+    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+    let mut results = Vec::new();
+
+    let mut stmt = conn.prepare(query.as_str())?;
+    let row_iter = stmt.query_map(params_as_refs.as_slice(), game_map_closure)?;
+
+    for result in row_iter {
+        results.push(result?);
+    }
+
+    Ok(results)
+}
+
+// The search function that takes a connection and a GameSearch object
+pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     let mut selection = match search.slim {
         true => SLIM_RESULTS_QUERY.to_owned(),
         false => RESULTS_QUERY.to_owned(),
@@ -789,16 +817,6 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
             + &selection;
     }
 
-    let (query, params) = build_search_query(search, &selection);
-    debug_println!("search query - \n{}", format_query(&query, params.clone()));
-
-    // Convert the parameters array to something rusqlite understands
-    let params_as_refs: Vec<&dyn rusqlite::ToSql> =
-        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-
-    let mut games = Vec::new();
-
-    let mut stmt = conn.prepare(query.as_str())?;
     let game_map_closure = match search.slim {
         true => |row: &rusqlite::Row<'_>| -> Result<Game> {
             Ok(Game {
@@ -857,10 +875,9 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
         },
     };
 
-    let game_iter = stmt.query_map(params_as_refs.as_slice(), game_map_closure)?;
+    let mut games = search_custom(conn, search, selection.as_str(), game_map_closure)?;
 
-    for game in game_iter {
-        let mut game: Game = game?;
+    for game in &mut games {
         if search.load_relations.platforms {
             game.detailed_platforms = get_game_platforms(conn, &game.id)?.into();
         }
@@ -873,10 +890,10 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
         if search.load_relations.add_apps {
             game.add_apps = Some(get_game_add_apps(conn, &game.id)?);
         }
-        games.push(game);
     }
 
     Ok(games)
+
 }
 
 pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result<Vec<Game>> {
