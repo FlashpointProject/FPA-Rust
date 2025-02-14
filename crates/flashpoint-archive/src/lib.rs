@@ -1227,6 +1227,31 @@ mod tests {
         assert_eq!(index.len(), 5);
     }
 
+    
+    #[tokio::test]
+    async fn search_bracketting() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(TEST_DATABASE);
+        assert!(create.is_ok());
+
+        let search = &mut GameSearch::default();
+
+        let mut tag_filter = GameFilter::default();
+        tag_filter.whitelist.tags = Some(vec!["Alien Hominid".into()]);
+
+        let mut dev_filter = GameFilter::default();
+        dev_filter.whitelist.developer = Some(vec!["jmtb".into(), "Tom Fulp".into()]);
+        dev_filter.match_any = true;
+
+        search.filter.match_any = false;
+        search.filter.subfilters.push(dev_filter);
+        search.filter.subfilters.push(tag_filter);
+
+        let games_res = flashpoint.search_games(&search).await;
+        assert!(games_res.is_ok());
+        assert_eq!(games_res.unwrap().len(), 1);
+    }
+
     #[tokio::test]
     async fn get_tag() {
         let mut flashpoint = FlashpointArchive::new();
@@ -1278,7 +1303,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_tags_clear_existing(    ) {
+    async fn update_tags_clear_existing() {
         let mut flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(":memory:");
         assert!(create.is_ok());

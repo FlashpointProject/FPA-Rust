@@ -1018,7 +1018,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         for subfilter in filter.subfilters.iter() {
             let new_clause = build_filter_query(subfilter, params);
             if new_clause != "" {
-                where_clauses.push(new_clause);
+                where_clauses.push(format!("({})", new_clause));
             }
         }
     }
