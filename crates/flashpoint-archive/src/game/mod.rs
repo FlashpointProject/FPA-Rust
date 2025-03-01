@@ -278,6 +278,7 @@ pub struct PartialGame {
     pub status: Option<String>,
     pub notes: Option<String>,
     pub tags: Option<TagVec>,
+    pub detailed_tags: Option<Vec<Tag>>,
     pub source: Option<String>,
     pub legacy_application_path: Option<String>,
     pub legacy_launch_command: Option<String>,
@@ -384,19 +385,29 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
 pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     let mut game: Game = partial.into();
 
-    let mut detailed_tags = vec![];
-    let mut detailed_platforms = vec![];
-
     let tags_copy = game.tags.clone();
     let platforms_copy = game.platforms.clone();
     game.tags = vec![].into();
     game.platforms = vec![].into();
 
-    for name in tags_copy {
-        let detailed_tag = tag::find_or_create(conn, &name)?;
-        game.tags.push(detailed_tag.name);
-        detailed_tags.push(detailed_tag.id);
+    let mut detailed_tags = vec![];
+
+    match game.detailed_tags.as_deref() {
+        Some(dtags) => {
+            for tag in dtags {
+                detailed_tags.push(tag.id);
+            }
+        },
+        None => {
+            for name in tags_copy {
+                let detailed_tag = tag::find_or_create(conn, &name)?;
+                game.tags.push(detailed_tag.name);
+                detailed_tags.push(detailed_tag.id);
+            }
+        }
     }
+
+    let mut detailed_platforms = vec![];
 
     for name in platforms_copy {
         let detailed_platform = platform::find_or_create(conn, &name, None)?;
@@ -1099,6 +1110,7 @@ impl Default for PartialGame {
             status: None,
             notes: None,
             tags: None,
+            detailed_tags: None,
             source: None,
             legacy_application_path: None,
             legacy_launch_command: None,
@@ -1240,6 +1252,10 @@ impl Game {
         if let Some(tags) = source.tags.clone() {
             self.tags = tags;
         }
+
+        if let Some(detailed_tags) = source.detailed_tags.clone() {
+            self.detailed_tags = Some(detailed_tags);
+        }
     
         if let Some(source) = source.source.clone() {
             self.source = source;
@@ -1341,6 +1357,7 @@ impl From<Game> for PartialGame {
             status: Some(game.status),
             notes: Some(game.notes),
             tags: Some(game.tags),
+            detailed_tags: game.detailed_tags,
             source: Some(game.source),
             legacy_application_path: Some(game.legacy_application_path),
             legacy_launch_command: Some(game.legacy_launch_command),
