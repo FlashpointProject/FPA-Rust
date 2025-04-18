@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use rusqlite::{params, types::Value, Connection, OptionalExtension, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     game::search::mark_index_dirty,
@@ -8,8 +9,7 @@ use crate::{
 };
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Tag {
     pub id: i64,
     pub name: String,
@@ -20,8 +20,7 @@ pub struct Tag {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PartialTag {
     pub id: i64,
     pub name: String,
@@ -32,8 +31,7 @@ pub struct PartialTag {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TagSuggestion {
     pub id: i64,
     pub name: String,
@@ -43,8 +41,7 @@ pub struct TagSuggestion {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LooseTagAlias {
     pub id: i64,
     pub value: String,

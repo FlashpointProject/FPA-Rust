@@ -1,12 +1,12 @@
 use std::rc::Rc;
 
 use rusqlite::{params, types::Value, Connection, OptionalExtension, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::tag::{PartialTag, Tag, TagSuggestion};
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlatformAppPath {
     pub app_path: String,
     pub count: i64,

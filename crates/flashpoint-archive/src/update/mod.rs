@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use rusqlite::types::{ToSqlOutput, Value};
 use rusqlite::{params, Connection, ToSql};
+use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 use uuid::Uuid;
 
@@ -29,15 +30,13 @@ impl ToSql for SqlVec<String> {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteDeletedGamesRes {
     pub games: Vec<RemoteDeletedGame>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteDeletedGame {
     pub id: String,
     pub date_modified: String,
@@ -45,8 +44,7 @@ pub struct RemoteDeletedGame {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteGamesRes {
     pub games: Vec<RemoteGame>,
     pub add_apps: Vec<RemoteAddApp>,
@@ -56,8 +54,7 @@ pub struct RemoteGamesRes {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteGameData {
     pub game_id: String,
     pub title: String,
@@ -71,8 +68,7 @@ pub struct RemoteGameData {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteAddApp {
     pub name: String,
     pub application_path: String,
@@ -83,8 +79,7 @@ pub struct RemoteAddApp {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteGame {
     pub id: String,
     pub title: String,
@@ -111,8 +106,7 @@ pub struct RemoteGame {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteCategory {
     pub id: i64,
     pub name: String,
@@ -121,8 +115,7 @@ pub struct RemoteCategory {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteTag {
     pub id: i64,
     pub name: String,
@@ -134,8 +127,7 @@ pub struct RemoteTag {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemotePlatform {
     pub id: i64,
     pub name: String,
@@ -145,8 +137,7 @@ pub struct RemotePlatform {
     pub deleted: bool,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Alias {
     id: i64,
     value: String,

@@ -1,9 +1,9 @@
 use std::{fs, path::Path};
 use fs_extra::{copy_items, dir::CopyOptions};
+use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ContentTreeNode {
     pub name: String,
     pub expanded: bool,

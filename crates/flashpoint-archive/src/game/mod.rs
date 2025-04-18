@@ -4,6 +4,7 @@ use rusqlite::{
     types::{FromSql, FromSqlError, Value, ValueRef},
     Connection, OptionalExtension, Result,
 };
+use serde::{Deserialize, Serialize};
 use unicase::UniCase;
 use uuid::Uuid;
 use std::{collections::{HashMap, HashSet}, fmt::Display, ops::{Deref, DerefMut}, rc::Rc, vec::Vec};
@@ -20,7 +21,6 @@ use napi::bindgen_prelude::{ToNapiValue, FromNapiValue};
 #[derive(Debug, Clone)]
 pub struct TagVec (Vec<String>);
 
-#[cfg(feature = "serde")]
 impl serde::Serialize for TagVec {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -31,7 +31,6 @@ impl serde::Serialize for TagVec {
     }
 }
 
-#[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for TagVec {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -202,8 +201,7 @@ impl FromSql for TagVec {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AdditionalApp {
     pub id: String,
     pub name: String,
@@ -215,8 +213,7 @@ pub struct AdditionalApp {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Game {
     pub id: String,
     pub library: String,
@@ -258,8 +255,7 @@ pub struct Game {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PartialGame {
     pub id: String,
     pub library: Option<String>,
@@ -299,8 +295,7 @@ pub struct PartialGame {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GameRedirect {
     pub source_id: String,
     pub dest_id: String,
