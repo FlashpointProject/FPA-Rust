@@ -281,6 +281,20 @@ pub fn get() -> Migrations<'static> {
         M::up(r#"
             ALTER TABLE "game" ADD COLUMN "ruffleSupport" varchar NOT NULL DEFAULT '';
         "#),
+        M::up(r#"
+            CREATE TABLE IF NOT EXISTS ext_data (
+                "extId" varchar NOT NULL,
+                "gameId" varchar NOT NULL,
+                "data" jsonb,
+                PRIMARY KEY(extId, gameId)
+            );
+            CREATE INDEX IF NOT EXISTS "IDX_ext_data_gameId" ON "ext_data" (
+                "gameId"
+            );
+            CREATE INDEX IF NOT EXISTS "IDX_ext_data_extId" ON "ext_data" (
+                "extId"
+            );
+        "#),
     ]);
 
     migrations

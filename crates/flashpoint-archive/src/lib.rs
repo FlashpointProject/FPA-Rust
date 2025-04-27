@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::{atomic::AtomicBool, mpsc, Arc}};
-use game::{search::{GameFilter, GameSearch, PageTuple}, AdditionalApp, Game, GameRedirect, PartialGame};
+use game::{ext::ExtensionInfo, search::{GameFilter, GameSearch, PageTuple, ParsedInput}, AdditionalApp, Game, GameRedirect, PartialGame};
 use game_data::{GameData, PartialGameData};
 use platform::PlatformAppPath;
 use r2d2::Pool;
@@ -40,13 +40,15 @@ lazy_static! {
 }
 
 pub struct FlashpointArchive {
-    pool: Option<Pool<SqliteConnectionManager>>
+    pool: Option<Pool<SqliteConnectionManager>>,
+    extensions: game::ext::ExtensionRegistry,
 }
 
 impl FlashpointArchive {
-    pub fn new() -> FlashpointArchive {
+    pub fn new() -> Self {
         FlashpointArchive {
             pool: None,
+            extensions: game::ext::ExtensionRegistry::new(),
         }
     }
 
@@ -72,6 +74,16 @@ impl FlashpointArchive {
         self.pool = Some(pool);
 
         Ok(())
+    }
+
+    pub fn parse_user_input(&self, input: &str) -> ParsedInput {
+        game::search::parse_user_input(input, Some(&self.extensions.searchables))
+    }
+
+    pub fn register_extension(&mut self, ext: ExtensionInfo) -> Result<()> {
+        with_transaction!(&self.pool, |tx| {
+            self.extensions.register(tx, ext)
+        })
     }
 
     pub async fn search_games(&self, search: &GameSearch) -> Result<Vec<game::Game>> {
@@ -585,7 +597,7 @@ macro_rules! debug_println {
 #[cfg(test)]
 mod tests {
 
-    use crate::game::search::{GameSearchOffset, GameFilter, FieldFilter};
+    use crate::game::{ext::ExtSearchable, search::{parse_user_input, FieldFilter, GameFilter, GameSearchOffset}};
 
     use super::*;
 
@@ -741,15 +753,15 @@ mod tests {
 
     #[tokio::test]
     async fn parse_user_search_input_assorted() {
-        game::search::parse_user_input("test");
-        game::search::parse_user_input(r#"tag:"sonic""#);
-        game::search::parse_user_input(r#"o_%$ dev:"san" disk t:7 potato"#);
+        game::search::parse_user_input("test", None);
+        game::search::parse_user_input(r#"tag:"sonic""#, None);
+        game::search::parse_user_input(r#"o_%$ dev:"san" disk t:7 potato"#, None);
 
         enable_debug();
 
         // "" should be treated as exact
         // Allow key characters in quoted text
-        let s = game::search::parse_user_input(r#"title:"" series:"sonic:hedgehog" -developer:"""#).search;
+        let s = game::search::parse_user_input(r#"title:"" series:"sonic:hedgehog" -developer:"""#, None).search;
         assert!(s.filter.exact_whitelist.title.is_some());
         assert_eq!(s.filter.exact_whitelist.title.unwrap()[0], "");
         assert!(s.filter.whitelist.series.is_some());
@@ -758,7 +770,7 @@ mod tests {
         assert_eq!(s.filter.exact_blacklist.developer.unwrap()[0], "");
 
         // Make sure the number filters are populated and the time text is processes
-        let s2 = game::search::parse_user_input(r#"playtime>1h30m tags:3 playcount<3"#).search;
+        let s2 = game::search::parse_user_input(r#"playtime>1h30m tags:3 playcount<3"#, None).search;
         assert!(s2.filter.higher_than.playtime.is_some());
         assert_eq!(s2.filter.higher_than.playtime.unwrap(), 60 * 90);
         assert!(s2.filter.equal_to.tags.is_some());
@@ -769,7 +781,7 @@ mod tests {
 
     #[tokio::test]
     async fn parse_user_search_input_sizes() {
-        let search = game::search::parse_user_input("tags>5 addapps=3 gamedata<12 test>generic").search;
+        let search = game::search::parse_user_input("tags>5 addapps=3 gamedata<12 test>generic", None).search;
         assert!(search.filter.higher_than.tags.is_some());
         assert_eq!(search.filter.higher_than.tags.unwrap(), 5);
         assert!(search.filter.equal_to.add_apps.is_some());
@@ -917,6 +929,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn game_extension() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let create_ext = flashpoint.register_extension(ExtensionInfo { 
+            id: "user_score".to_owned(),
+            searchables: vec![ExtSearchable {
+                key: "score".to_owned(),
+                search_key: "score".to_owned(),
+                value_type: game::ext::ExtSearchableType::Number
+            }],
+            indexes: vec![] 
+        });
+        assert!(create_ext.is_ok());
+
+        // Save some game info with ext data
+        let partial_game = game::PartialGame {
+            title: Some(String::from("Test Game")),
+            tags: Some(vec!["Action"].into()),
+            ..game::PartialGame::default()
+        };
+        let game_create_res = flashpoint.create_game(&partial_game).await;
+        assert!(game_create_res.is_ok());
+        let mut game = game_create_res.unwrap();
+        let mut ext_map = HashMap::new();
+        let ext_data = serde_json::from_str(r#"{"score": 5}"#);
+        assert!(ext_data.is_ok());
+        ext_map.insert("user_score".to_owned(), ext_data.unwrap());
+        game.ext_data = Some(ext_map);
+        let save_res = flashpoint.save_game(&mut game.into()).await;
+        assert!(save_res.is_ok());
+
+        // Search for this game
+        let search = parse_user_input("score>3", Some(&flashpoint.extensions.searchables)).search;
+        let search_res = flashpoint.search_games(&search).await;
+        assert!(search_res.is_ok());
+        let res = search_res.unwrap();
+        assert_eq!(res.len(), 1);
+
+        let search = parse_user_input("score<3", Some(&flashpoint.extensions.searchables)).search;
+        let search_res = flashpoint.search_games(&search).await;
+        assert!(search_res.is_ok());
+        let res = search_res.unwrap();
+        assert_eq!(res.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn game_extension_user_input() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let create_ext = flashpoint.register_extension(ExtensionInfo { 
+            id: "user_score".to_owned(),
+            searchables: vec![
+            ExtSearchable {
+                key: "renamed".to_owned(),
+                search_key: "name".to_owned(),
+                value_type: game::ext::ExtSearchableType::String,
+            },
+            ExtSearchable {
+                key: "fav".to_owned(),
+                search_key: "fav".to_owned(),
+                value_type: game::ext::ExtSearchableType::Boolean,
+            },
+            ExtSearchable {
+                key: "score".to_owned(),
+                search_key: "score".to_owned(),
+                value_type: game::ext::ExtSearchableType::Number
+            }],
+            indexes: vec![],
+        });
+        assert!(create_ext.is_ok());
+        let search = parse_user_input("score>5 name:sonic fav=1", Some(&flashpoint.extensions.searchables)).search;
+
+        // Number field
+        assert!(search.filter.higher_than.ext.is_some());
+        let ext_search = search.filter.higher_than.ext.unwrap();
+        assert!(ext_search.contains_key("user_score"));
+        let ext_search_entry = ext_search.get("user_score").unwrap();
+        assert!(ext_search_entry.contains_key("score"));
+        let ext_search_entry_score = ext_search_entry.get("score").unwrap();
+        assert_eq!(*ext_search_entry_score, 5);
+
+        // Bool field
+        assert!(search.filter.bool_comp.ext.is_some());
+        let ext_search = search.filter.bool_comp.ext.unwrap();
+        assert!(ext_search.contains_key("user_score"));
+        let ext_search_entry = ext_search.get("user_score").unwrap();
+        assert!(ext_search_entry.contains_key("fav"));
+        let ext_search_entry_score = ext_search_entry.get("fav").unwrap();
+        assert_eq!(*ext_search_entry_score, true);
+
+        // String field
+        assert!(search.filter.whitelist.ext.is_some());
+        let ext_search = search.filter.whitelist.ext.unwrap();
+        assert!(ext_search.contains_key("user_score"));
+        let ext_search_entry = ext_search.get("user_score").unwrap();
+        assert!(ext_search_entry.contains_key("renamed"));
+        let ext_search_entry_score = ext_search_entry.get("renamed").unwrap();
+        assert!(ext_search_entry_score.iter().find(|&s| *s == "sonic").is_some());
+    }
+
+    #[tokio::test]
     async fn create_and_save_game_data() {
         let mut flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(":memory:");
@@ -957,7 +1072,7 @@ mod tests {
     #[tokio::test]
     async fn parse_user_search_input() {
         let input = r#"sonic title:"dog cat" -title:"cat dog" tag:Action -mario installed:true"#;
-        let search = game::search::parse_user_input(input).search;
+        let search = game::search::parse_user_input(input, None).search;
         assert!(search.filter.whitelist.generic.is_some());
         assert_eq!(search.filter.whitelist.generic.unwrap()[0], "sonic");
         assert!(search.filter.whitelist.title.is_some());
@@ -975,7 +1090,7 @@ mod tests {
     #[tokio::test]
     async fn parse_user_search_input_whitespace() {
         let input = r#"series:"紅白Flash合戦  / Red & White Flash Battle 2013""#;
-        let search = game::search::parse_user_input(input).search;
+        let search = game::search::parse_user_input(input, None).search;
         assert!(search.filter.whitelist.series.is_some());
         assert_eq!(search.filter.whitelist.series.unwrap()[0], "紅白Flash合戦  / Red & White Flash Battle 2013");
     }
@@ -983,7 +1098,7 @@ mod tests {
     #[tokio::test]
     async fn parse_user_quick_search_input() {
         let input = r#"#Action -!Flash @"armor games" !"#;
-        let search = game::search::parse_user_input(input).search;
+        let search = game::search::parse_user_input(input, None).search;
         assert!(search.filter.whitelist.tags.is_some());
         assert_eq!(search.filter.whitelist.tags.unwrap()[0], "Action");
         assert!(search.filter.blacklist.platforms.is_some());
@@ -997,7 +1112,7 @@ mod tests {
     #[tokio::test]
     async fn parse_user_exact_search_input() {
         let input = r#"!Flash -publisher=Newgrounds =sonic"#;
-        let search = game::search::parse_user_input(input).search;
+        let search = game::search::parse_user_input(input, None).search;
         assert!(search.filter.whitelist.platforms.is_some());
         assert_eq!(search.filter.whitelist.platforms.unwrap()[0], "Flash");
         assert!(search.filter.exact_blacklist.publisher.is_some());
@@ -1182,7 +1297,7 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
 
-        let mut search = crate::game::search::parse_user_input("").search;
+        let mut search = crate::game::search::parse_user_input("", None).search;
         let mut new_filter = GameFilter::default();
         new_filter.exact_blacklist.tags = Some(vec!["Action".to_owned()]);
         search.filter.subfilters.push(new_filter);
@@ -1198,7 +1313,7 @@ mod tests {
         let create = flashpoint.load_database(TEST_DATABASE);
         assert!(create.is_ok());
 
-        let mut search = crate::game::search::parse_user_input("installed:true").search;
+        let mut search = crate::game::search::parse_user_input("installed:true", None).search;
         if let Some(installed) = search.filter.bool_comp.installed.as_ref() {
             assert_eq!(installed, &true);
         } else {

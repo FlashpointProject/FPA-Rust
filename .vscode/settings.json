@@ -2,5 +2,6 @@
     "rust-analyzer.showUnlinkedFileNotification": false,
     "rust-analyzer.linkedProjects": ["bindings/Cargo.toml", "Cargo.toml"],
     "rust-analyzer.files.excludeDirs": ["bindings/target", "target"],
+    "rust-analyzer.procMacro.ignored": { "napi-derive": ["napi"] },
     "editor.tabSize": 4
 }

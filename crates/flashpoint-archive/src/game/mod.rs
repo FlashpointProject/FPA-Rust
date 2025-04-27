@@ -14,6 +14,7 @@ use crate::{game_data::{GameData, PartialGameData}, platform::{self, PlatformApp
 use self::search::{mark_index_dirty, GameSearch, GameSearchRelations};
 
 pub mod search;
+pub mod ext;
 
 #[cfg(feature = "napi")]
 use napi::bindgen_prelude::{ToNapiValue, FromNapiValue};
@@ -252,6 +253,7 @@ pub struct Game {
     pub game_data: Option<Vec<GameData>>,
     pub add_apps: Option<Vec<AdditionalApp>>,
     pub ruffle_support: String,
+    pub ext_data: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -292,6 +294,7 @@ pub struct PartialGame {
     pub archive_state: Option<i64>,
     pub add_apps: Option<Vec<AdditionalApp>>,
     pub ruffle_support: Option<String>,
+    pub ext_data: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -362,6 +365,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
                 game_data: None,
                 add_apps: None,
                 ruffle_support: row.get(32)?,
+                ext_data: None,
             })
         })
         .optional()?; // Converts rusqlite::Error::QueryReturnedNoRows to None
@@ -371,10 +375,29 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
         game.detailed_tags = Some(get_game_tags(conn, id)?);
         game.game_data = Some(get_game_data(conn, id)?);
         game.add_apps = Some(get_game_add_apps(conn, id)?);
+        game.ext_data = Some(find_ext_data(conn, &game.id)?);
         Ok(Some(game))
     } else {
         Ok(None)
     }
+}
+
+fn find_ext_data(conn: &Connection, id: &str) -> Result<HashMap<String, serde_json::Value>> {
+    let mut stmt = conn.prepare("SELECT extId, data FROM ext_data WHERE gameId = ?")?;
+    let rows = stmt.query_map(params![id], |row| {
+        let ext_id: String = row.get(0)?;
+        let data: serde_json::Value = row.get(1)?;
+        Ok((ext_id, data))
+    })?;
+
+    let mut res = HashMap::new();
+
+    for result in rows {
+        let (ext_id, data) = result?;
+        res.insert(ext_id, data);
+    }
+
+    Ok(res)
 }
 
 pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
@@ -461,6 +484,14 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
         conn.execute("INSERT OR IGNORE INTO game_platforms_platform (gameId, platformId) VALUES (?, ?)", params![game.id, platform])?;
     }
 
+    if let Some(ext_data) = &game.ext_data {
+        for (ext_id, data) in ext_data {
+            conn.execute("INSERT INTO ext_data (extId, gameId, data) VALUES(?, ?, ?)
+              ON CONFLICT(extId, gameId)
+              DO UPDATE SET data = ?", params![ext_id, game.id, data, data])?;
+        }
+    }
+
     mark_index_dirty(conn)?;
 
     Ok(game)
@@ -513,6 +544,14 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
             stmt.execute(params![existing_game.id.as_str(), platform_id])?;
         }
 
+        // Write back any ext data changes to the database
+        if let Some(ext_data) = &game.ext_data {
+            for (ext_id, data) in ext_data {
+                conn.execute("INSERT INTO ext_data (extId, gameId, data) VALUES(?, ?, ?)
+                  ON CONFLICT(extId, gameId)
+                  DO UPDATE SET data = ?", params![ext_id, game.id, data, data])?;
+            }
+        }
 
         // Write back the changes to the database
         conn.execute(
@@ -560,8 +599,6 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
             ],
         )?;
 
-
-
         existing_game.detailed_platforms = get_game_platforms(conn, &existing_game.id)?.into();
         existing_game.detailed_tags = get_game_tags(conn, &existing_game.id)?.into();
         existing_game.game_data = get_game_data(conn, &existing_game.id)?.into();
@@ -585,6 +622,9 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(stmt, params![id])?;
 
     stmt = "DELETE FROM game_platforms_platform WHERE gameId = ?";
+    conn.execute(stmt, params![id])?;
+
+    stmt = "DELETE FROM ext_data WHERE gameId = ?";
     conn.execute(stmt, params![id])?;
 
     Ok(())
@@ -832,6 +872,7 @@ pub fn find_with_tag(conn: &Connection, tag: &str) -> Result<Vec<Game>> {
         platforms: true,
         game_data: true,
         add_apps: true,
+        ext: HashMap::default(),
     };
     search.filter.exact_whitelist.tags = Some(vec![tag.to_owned()]);
     search.limit = MAX_SEARCH;
@@ -1123,6 +1164,7 @@ impl Default for PartialGame {
             archive_state: None,
             add_apps: None,
             ruffle_support: None,
+            ext_data: None,
         }
     }
 }
@@ -1167,6 +1209,7 @@ impl Default for Game {
             game_data: None,
             add_apps: None,
             ruffle_support: String::default(),
+            ext_data: None,
         }
     }
 }
@@ -1315,6 +1358,10 @@ impl Game {
         if let Some(ruffle_support) = source.ruffle_support.clone() {
             self.ruffle_support = ruffle_support;
         }
+
+        if let Some(ext_data) = source.ext_data.clone() {
+            self.ext_data = Some(ext_data);
+        }
     }
 }
 
@@ -1370,6 +1417,7 @@ impl From<Game> for PartialGame {
             archive_state: Some(game.archive_state),
             add_apps: game.add_apps,
             ruffle_support: Some(game.ruffle_support),
+            ext_data: game.ext_data,
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::{fmt::Display, rc::Rc};
+use std::{collections::HashMap, fmt::Display, rc::Rc, hash::Hash};
 
 use fancy_regex::{Captures, Regex};
 use rusqlite::{
@@ -7,9 +7,9 @@ use rusqlite::{
     Connection, OptionalExtension, Result, ToSql,
 };
 
-use crate::{debug_println, game::get_game_add_apps};
+use crate::{debug_println, game::{ext::ExtSearchableType, get_game_add_apps}};
 
-use super::{get_game_data, get_game_platforms, get_game_tags, Game};
+use super::{ext::ExtSearchableRegistered, get_game_data, get_game_platforms, get_game_tags, Game};
 
 #[derive(Debug, Clone)]
 pub enum SearchParam {
@@ -115,6 +115,7 @@ pub struct GameSearchRelations {
     pub platforms: bool,
     pub game_data: bool,
     pub add_apps: bool,
+    pub ext: HashMap<String, HashMap<String, bool>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -153,12 +154,14 @@ pub struct FieldFilter {
     pub application_path: Option<Vec<String>>,
     pub launch_command: Option<Vec<String>>,
     pub ruffle_support: Option<Vec<String>>,
+    pub ext: Option<HashMap<String, HashMap<String, Vec<String>>>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct BoolFilter {
     pub installed: Option<bool>,
+    pub ext: Option<HashMap<String, HashMap<String, bool>>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -174,6 +177,7 @@ pub struct SizeFilter {
     pub playtime: Option<i64>,
     pub playcount: Option<i64>,
     pub last_played: Option<String>,
+    pub ext: Option<HashMap<String, HashMap<String, i64>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +212,7 @@ struct ForcedFieldFilter {
     pub application_path: Vec<String>,
     pub launch_command: Vec<String>,
     pub ruffle_support: Vec<String>,
+    pub ext: HashMap<String, HashMap<String, Vec<String>>>,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -260,6 +265,7 @@ impl Default for GameSearchRelations {
             platforms: false,
             game_data: false,
             add_apps: false,
+            ext: HashMap::default(),
         }
     }
 }
@@ -285,6 +291,7 @@ impl Default for FieldFilter {
             application_path: None,
             launch_command: None,
             ruffle_support: None,
+            ext: None,
         }
     }
 }
@@ -325,6 +332,7 @@ impl Default for ForcedFieldFilter {
             application_path: vec![],
             launch_command: vec![],
             ruffle_support: vec![],
+            ext: HashMap::default(),
         }
     }
 }
@@ -342,13 +350,17 @@ impl Default for SizeFilter {
             playtime: None,
             playcount: None,
             last_played: None,
+            ext: None,
         };
     }
 }
 
 impl Default for BoolFilter {
     fn default() -> Self {
-        return BoolFilter { installed: None };
+        return BoolFilter {
+            installed: None,
+            ext: None,
+        };
     }
 }
 
@@ -410,6 +422,9 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.whitelist.ruffle_support.len() > 0 {
             search.whitelist.ruffle_support = Some(value.whitelist.ruffle_support.clone());
         }
+        if value.whitelist.ext.len() > 0 {
+            search.whitelist.ext = Some(value.whitelist.ext.clone());
+        }
 
         // Blacklist
 
@@ -464,6 +479,9 @@ impl From<&ForcedGameFilter> for GameFilter {
         }
         if value.blacklist.ruffle_support.len() > 0 {
             search.blacklist.ruffle_support = Some(value.blacklist.ruffle_support.clone());
+        }
+        if value.blacklist.ext.len() > 0 {
+            search.blacklist.ext = Some(value.blacklist.ext.clone());
         }
 
         // Exact whitelist
@@ -523,6 +541,9 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_whitelist.ruffle_support =
                 Some(value.exact_whitelist.ruffle_support.clone());
         }
+        if value.exact_whitelist.ext.len() > 0 {
+            search.exact_whitelist.ext = Some(value.exact_whitelist.ext.clone());
+        }
 
         // Exact blacklist
 
@@ -581,6 +602,9 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_blacklist.ruffle_support =
                 Some(value.exact_blacklist.ruffle_support.clone());
         }
+        if value.exact_blacklist.ext.len() > 0 {
+            search.exact_blacklist.ext = Some(value.exact_blacklist.ext.clone());
+        }
 
         search.higher_than = value.higher_than.clone();
         search.lower_than = value.lower_than.clone();
@@ -588,6 +612,19 @@ impl From<&ForcedGameFilter> for GameFilter {
         search.bool_comp = value.bool_comp.clone();
 
         search
+    }
+}
+
+pub trait InsertOrGet<K: Eq + Hash, V: Default> {
+    fn insert_or_get(&mut self, item: K) -> &mut V;
+}
+
+impl<K: Eq + Hash, V: Default> InsertOrGet<K, V> for HashMap<K, V> {
+    fn insert_or_get(&mut self, item: K) -> &mut V {
+        return match self.entry(item) {
+            std::collections::hash_map::Entry::Occupied(o) => o.into_mut(),
+            std::collections::hash_map::Entry::Vacant(v) => v.insert(V::default()),
+        };
     }
 }
 
@@ -871,6 +908,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 game_data: None,
                 add_apps: None,
                 ruffle_support: row.get(32)?,
+                ext_data: None,
             })
         },
     };
@@ -893,7 +931,6 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
     }
 
     Ok(games)
-
 }
 
 pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result<Vec<Game>> {
@@ -961,10 +998,16 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
         } else {
             let offset_clause = match search.order.direction {
                 GameSearchDirection::ASC => {
-                    format!(" WHERE ({} COLLATE NOCASE, game.title, game.id) > (?, ?, ?)", order_column)
+                    format!(
+                        " WHERE ({} COLLATE NOCASE, game.title, game.id) > (?, ?, ?)",
+                        order_column
+                    )
                 }
                 GameSearchDirection::DESC => {
-                    format!(" WHERE ({} COLLATE NOCASE, game.title, game.id) < (?, ?, ?)", order_column)
+                    format!(
+                        " WHERE ({} COLLATE NOCASE, game.title, game.id) < (?, ?, ?)",
+                        order_column
+                    )
                 }
             };
             query.push_str(&offset_clause);
@@ -1794,6 +1837,128 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         params.push(SearchParam::Boolean(val));
     }
 
+    // Deal with complicated extension comparisons
+
+    let mut ext_add_clause = |values: &Option<HashMap<String, HashMap<String, Vec<String>>>>,
+                              exact: bool,
+                              blacklist: bool| {
+        if let Some(value_list) = values {
+            let comparator = match (blacklist, exact) {
+                (true, true) => "!=",
+                (true, false) => "NOT LIKE",
+                (false, true) => "=",
+                (false, false) => "LIKE",
+            };
+
+            // Exact OR - else - Inexact OR / Inexact AND / Exact AND
+            if exact && filter.match_any {
+                let comparator = match blacklist {
+                    true => "NOT IN",
+                    false => "IN",
+                };
+                for (ext_id, comp) in value_list {
+                    for (key, value_list) in comp {
+                        where_clauses.push(
+                            format!("game.id IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') {} rarray(?))", key, comparator)
+                        );
+                        params.push(SearchParam::String(ext_id.clone()));
+                        params.push(SearchParam::StringVec(value_list.clone()));
+                    }
+                }
+            } else if blacklist {
+                let mut inner_clauses = vec![];
+                for (ext_id, comp) in value_list {
+                    for (key, value_list) in comp {
+                        for value in value_list {
+                            inner_clauses.push(
+                                format!("game.id IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') {} ?)", key, comparator)
+                            );
+                            params.push(SearchParam::String(ext_id.clone()));
+                            if exact {
+                                params.push(SearchParam::String(value.clone()));
+                            } else {
+                                let p = format!("%{}%", value);
+                                params.push(SearchParam::String(p));
+                            }
+                        }
+                    }
+                }
+                where_clauses.push(format!("({})", inner_clauses.join(" AND ")));
+            } else {
+                for (ext_id, comp) in value_list {
+                    for (key, value_list) in comp {
+                        for value in value_list {
+                            where_clauses.push(
+                                format!("game.id IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') {} ?)", key, comparator)
+                            );
+                            params.push(SearchParam::String(ext_id.clone()));
+                            if exact {
+                                params.push(SearchParam::String(value.clone()));
+                            } else {
+                                let p = format!("%{}%", value);
+                                params.push(SearchParam::String(p));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Ext strings
+
+    ext_add_clause(&filter.whitelist.ext, false, false);
+    ext_add_clause(&filter.blacklist.ext, false, true);
+    ext_add_clause(&filter.exact_whitelist.ext, true, false);
+    ext_add_clause(&filter.exact_blacklist.ext, true, true);
+
+    let mut ext_add_compare =
+    |comparator: KeyChar, value: &Option<HashMap<String, HashMap<String, i64>>>| {
+        if let Some(value_list) = value {
+            for (ext_id, values) in value_list {
+                for (key, f) in values {
+                    match comparator {
+                        KeyChar::EQUALS | KeyChar::MATCHES => {
+                            where_clauses.push(format!("game.id IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') = ?)", key).to_owned());
+                            params.push(SearchParam::String(ext_id.clone()));
+                            params.push(SearchParam::Integer64(f.clone()));
+                        },
+                        KeyChar::LOWER => {
+                            where_clauses.push(format!("game.id NOT IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') >= ?)", key).to_owned());
+                            params.push(SearchParam::String(ext_id.clone()));
+                            params.push(SearchParam::Integer64(f.clone()));
+                        }
+                        KeyChar::HIGHER => {
+                            where_clauses.push(format!("game.id IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') > ?)", key).to_owned());
+                            params.push(SearchParam::String(ext_id.clone()));
+                            params.push(SearchParam::Integer64(f.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Ext numericals
+
+    ext_add_compare(KeyChar::EQUALS, &filter.equal_to.ext);
+    ext_add_compare(KeyChar::LOWER, &filter.lower_than.ext);
+    ext_add_compare(KeyChar::HIGHER, &filter.higher_than.ext);
+
+    // Ext bools
+
+    if let Some(value_list) = &filter.bool_comp.ext {
+        for (ext_id, comp) in value_list {
+            for (key, value) in comp {
+                where_clauses.push(
+                    format!("game.id IN (SELECT gameId FROM ext_data WHERE extId = ? AND JSON_EXTRACT(data, '$.{}') = ?)", key).to_owned()
+                );
+                params.push(SearchParam::String(ext_id.clone()));
+                params.push(SearchParam::Boolean(value.clone()));
+            }
+        }
+    }
+
     // Remove any cases of "()" from where_clauses
 
     where_clauses = where_clauses.into_iter().filter(|s| s != "()").collect();
@@ -1994,7 +2159,12 @@ pub struct ParsedInput {
     pub positions: Vec<ElementPosition>,
 }
 
-pub fn parse_user_input(input: &str) -> ParsedInput {
+pub fn parse_user_input(input: &str, ext_searchables: Option<&HashMap<String, ExtSearchableRegistered>>) -> ParsedInput {
+    let ext_searchables = match ext_searchables {
+        Some(e) => e,
+        None => &HashMap::new()
+    };
+
     let mut search = GameSearch::default();
     let mut filter = ForcedGameFilter::default();
 
@@ -2213,6 +2383,7 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
 
             // Handle boolean comparisons
             let mut processed: bool = true;
+            
             match working_key.to_lowercase().as_str() {
                 "installed" => {
                     let mut value = !(working_value.to_lowercase() == "no"
@@ -2225,7 +2396,28 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                     filter.bool_comp.installed = Some(value);
                 }
                 _ => {
-                    processed = false;
+                    // Check if this is a searchable key registered by an extension
+                    if let Some(ext_searchable) = ext_searchables.get(working_key.to_lowercase().as_str()) {
+                        if ext_searchable.value_type == ExtSearchableType::Boolean {
+                            let mut value = !(working_value.to_lowercase() == "no"
+                                && working_value.to_lowercase() == "false"
+                                && working_value.to_lowercase() == "0");
+                            if negative {
+                                value = !value;
+                            }
+
+                            // Unwrap or create a new extensions filter
+                            let mut inner_filter = filter.bool_comp.ext.unwrap_or_default();
+                            // Insert a new map for the extension that owns this searchable if missing
+                            let ext_filter = inner_filter.insert_or_get(ext_searchable.ext_id.clone());
+                            ext_filter.insert(ext_searchable.key.clone(), value);
+                            filter.bool_comp.ext = Some(inner_filter);
+                        } else {
+                            processed = false;
+                        }
+                    } else {
+                        processed = false;
+                    }            
                 }
             }
 
@@ -2256,7 +2448,21 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                     filter.lower_than.last_played = Some(working_value.clone())
                                 }
                                 _ => {
-                                    processed = false;
+                                    // Check if this is a searchable key registered by an extension
+                                    if let Some(ext_searchable) = ext_searchables.get(working_key.to_lowercase().as_str()) {
+                                        if ext_searchable.value_type == ExtSearchableType::Number {
+                                            // Unwrap or create a new extensions filter
+                                            let mut inner_filter = filter.lower_than.ext.unwrap_or_default();
+                                            // Insert a new map for the extension that owns this searchable if missing
+                                            let ext_filter = inner_filter.insert_or_get(ext_searchable.ext_id.clone());
+                                            ext_filter.insert(ext_searchable.key.clone(), value);
+                                            filter.lower_than.ext = Some(inner_filter);
+                                        } else {
+                                            processed = false;
+                                        }
+                                    } else {
+                                        processed = false;
+                                    }                           
                                 }
                             }
                         }
@@ -2282,7 +2488,21 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                     filter.higher_than.last_played = Some(working_value.clone())
                                 }
                                 _ => {
-                                    processed = false;
+                                    // Check if this is a searchable key registered by an extension
+                                    if let Some(ext_searchable) = ext_searchables.get(working_key.to_lowercase().as_str()) {
+                                        if ext_searchable.value_type == ExtSearchableType::Number {
+                                            // Unwrap or create a new extensions filter
+                                            let mut inner_filter = filter.higher_than.ext.unwrap_or_default();
+                                            // Insert a new map for the extension that owns this searchable if missing
+                                            let ext_filter = inner_filter.insert_or_get(ext_searchable.ext_id.clone());
+                                            ext_filter.insert(ext_searchable.key.clone(), value);
+                                            filter.higher_than.ext = Some(inner_filter);
+                                        } else {
+                                            processed = false;
+                                        }
+                                    } else {
+                                        processed = false;
+                                    }
                                 }
                             }
                         }
@@ -2308,7 +2528,21 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                                     filter.equal_to.last_played = Some(working_value.clone())
                                 }
                                 _ => {
-                                    processed = false;
+                                    // Check if this is a searchable key registered by an extension
+                                    if let Some(ext_searchable) = ext_searchables.get(working_key.to_lowercase().as_str()) {
+                                        if ext_searchable.value_type == ExtSearchableType::Number {
+                                            // Unwrap or create a new extensions filter
+                                            let mut inner_filter = filter.equal_to.ext.unwrap_or_default();
+                                            // Insert a new map for the extension that owns this searchable if missing
+                                            let ext_filter = inner_filter.insert_or_get(ext_searchable.ext_id.clone());
+                                            ext_filter.insert(ext_searchable.key.clone(), value);
+                                            filter.equal_to.ext = Some(inner_filter);
+                                        } else {
+                                            processed = false;
+                                        }
+                                    } else {
+                                        processed = false;
+                                    }   
                                 }
                             }
                         }
@@ -2339,13 +2573,34 @@ pub fn parse_user_input(input: &str) -> ParsedInput {
                     "ap" | "path" | "app" | "applicationpath" => list.application_path.push(value),
                     "lc" | "launchcommand" => list.launch_command.push(value),
                     "ruffle" | "rufflesupport" => list.ruffle_support.push(value.to_lowercase()),
-                    _ => match &working_key_char {
-                        Some(kc) => {
-                            let ks: String = kc.clone().into();
-                            let full_value = working_key.clone() + &ks + &value;
-                            list.generic.push(full_value);
+                    _ => {
+                        let processed = if let Some(ext_searchable) = ext_searchables.get(working_key.to_lowercase().as_str()) {
+                            if ext_searchable.value_type == ExtSearchableType::String {
+                                // Insert a new map for the extension that owns this searchable if missing
+                                let ext_filter = list.ext.insert_or_get(ext_searchable.ext_id.clone());
+                                let ext_list = ext_filter.insert_or_get(ext_searchable.key.clone());
+                                ext_list.push(value.clone());
+
+                                true
+                            } else {
+                                false
+                            }
+                        } else { 
+                            false
+                        };
+                        if !processed {
+                            // Reform the full search term if it contained a key character
+                            let value = match &working_key_char {
+                                Some(kc) => {
+                                    let ks: String = kc.clone().into();
+                                    let full_value = working_key.clone() + &ks + &value;
+                                    full_value
+                                }
+                                None => value,
+                            };
+
+                            list.generic.push(value);
                         }
-                        None => list.generic.push(value),
                     },
                 }
 
