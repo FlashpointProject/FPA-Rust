@@ -11,6 +11,7 @@ Project website: https://flashpointarchive.org/
 ## Test
 
 - Copy test db from https://download.unstable.life/testing/flashpoint.sqlite to `crates/flashpoint-archive/benches`
+- Run a simple test like `cargo test -p flashpoint-archive count_games` to force a migration
 `cargo test -p flashpoint-archive`
 
 ## Build

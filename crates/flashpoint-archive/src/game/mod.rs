@@ -253,6 +253,8 @@ pub struct Game {
     pub game_data: Option<Vec<GameData>>,
     pub add_apps: Option<Vec<AdditionalApp>>,
     pub ruffle_support: String,
+    pub logo_path: String,
+    pub screenshot_path: String,
     pub ext_data: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -294,6 +296,8 @@ pub struct PartialGame {
     pub archive_state: Option<i64>,
     pub add_apps: Option<Vec<AdditionalApp>>,
     pub ruffle_support: Option<String>,
+    pub logo_path: Option<String>,
+    pub screenshot_path: Option<String>,
     pub ext_data: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -321,7 +325,8 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
         platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
         tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
         originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-        activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, ruffleSupport \
+        activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, \
+        logoPath, screenshotPath, ruffleSupport \
         FROM game WHERE id = COALESCE((SELECT id FROM game_redirect WHERE sourceId = ?), ?)",
     )?;
 
@@ -364,7 +369,9 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
                 detailed_tags: None,
                 game_data: None,
                 add_apps: None,
-                ruffle_support: row.get(32)?,
+                logo_path: row.get(32)?,
+                screenshot_path: row.get(33)?,
+                ruffle_support: row.get(34)?,
                 ext_data: None,
             })
         })
@@ -438,8 +445,8 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
          platformName, platformsStr, dateAdded, dateModified, broken, extreme, playMode, status, \
          notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
          originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-         activeGameConfigId, activeGameConfigOwner, archiveState, orderTitle, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?, \
-         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)",
+         activeGameConfigId, activeGameConfigOwner, archiveState, orderTitle, logoPath, screenshotPath, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?, \
+         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)",
         params![
             &game.id,
             &game.library,
@@ -472,6 +479,8 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
             &game.active_game_config_id,
             &game.active_game_config_owner,
             &game.archive_state,
+            &game.logo_path,
+            &game.screenshot_path,
             &game.ruffle_support,
         ],
     )?;
@@ -561,7 +570,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
              applicationPath = ?, launchCommand = ?, releaseDate = ?, version = ?, \
              originalDescription = ?, language = ?, activeDataId = ?, activeDataOnDisk = ?, \
              lastPlayed = ?, playtime = ?, playCounter = ?, activeGameConfigId = ?, activeGameConfigOwner = ?, \
-             archiveState = ?, ruffleSupport = ? WHERE id = ?",
+             archiveState = ?, logoPath = ?, screenshotPath = ?, ruffleSupport = ? WHERE id = ?",
             params![
                 &existing_game.library,
                 &existing_game.title,
@@ -594,6 +603,8 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
                 &existing_game.active_game_config_id,
                 &existing_game.active_game_config_owner,
                 &existing_game.archive_state,
+                &existing_game.logo_path,
+                &existing_game.screenshot_path,
                 &existing_game.ruffle_support,
                 &existing_game.id,
             ],
@@ -872,7 +883,7 @@ pub fn find_with_tag(conn: &Connection, tag: &str) -> Result<Vec<Game>> {
         platforms: true,
         game_data: true,
         add_apps: true,
-        ext: HashMap::default(),
+        ext_data: true,
     };
     search.filter.exact_whitelist.tags = Some(vec![tag.to_owned()]);
     search.limit = MAX_SEARCH;
@@ -1163,6 +1174,8 @@ impl Default for PartialGame {
             active_game_config_owner: None,
             archive_state: None,
             add_apps: None,
+            logo_path: None,
+            screenshot_path: None,
             ruffle_support: None,
             ext_data: None,
         }
@@ -1208,6 +1221,8 @@ impl Default for Game {
             archive_state: 0,
             game_data: None,
             add_apps: None,
+            logo_path: String::default(),
+            screenshot_path: String::default(),
             ruffle_support: String::default(),
             ext_data: None,
         }
@@ -1359,6 +1374,14 @@ impl Game {
             self.ruffle_support = ruffle_support;
         }
 
+        if let Some(logo_path) = &source.logo_path {
+            self.logo_path = logo_path.clone();
+        }
+
+        if let Some(screenshot_path) = &source.screenshot_path {
+            self.screenshot_path = screenshot_path.clone();
+        }
+
         if let Some(ext_data) = source.ext_data.clone() {
             self.ext_data = Some(ext_data);
         }
@@ -1417,6 +1440,8 @@ impl From<Game> for PartialGame {
             archive_state: Some(game.archive_state),
             add_apps: game.add_apps,
             ruffle_support: Some(game.ruffle_support),
+            logo_path: Some(game.logo_path),
+            screenshot_path: Some(game.screenshot_path),
             ext_data: game.ext_data,
         }
     }

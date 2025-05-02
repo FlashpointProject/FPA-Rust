@@ -102,6 +102,8 @@ pub struct RemoteGame {
     pub library: String,
     pub platform_name: String,
     pub archive_state: i32,
+    pub logo_path: String,
+    pub screenshot_path: String,
     pub ruffle_support: String,
 }
 
@@ -375,7 +377,7 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
         platformName = ?, platformId = (SELECT platformId FROM platform_alias WHERE name = ?), platformsStr = ?, dateAdded = ?, dateModified = ?, 
         playMode = ?, status = ?, notes = ?, source = ?, activeDataId = -1,
         applicationPath = ?, launchCommand = ?, releaseDate = ?, version = ?,
-        originalDescription = ?, language = ?, archiveState = ?, ruffleSupport = ? WHERE id = ?").context(error::SqliteSnafu)?;
+        originalDescription = ?, language = ?, archiveState = ?, logoPath = ?, screenshotPath = ?, ruffleSupport = ? WHERE id = ?").context(error::SqliteSnafu)?;
 
     for g in games_res.games.iter().filter(|p| existing_ids.contains(&p.id)) {
         update_game_stmt.execute(params![
@@ -383,7 +385,7 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
             g.platform_name, g.platform_name, "", g.date_added, g.date_modified,
             g.play_mode, g.status, g.notes, g.source,
             g.application_path, g.launch_command, g.release_date, g.version,
-            g.original_description, g.language, g.archive_state, g.ruffle_support, g.id]).context(error::SqliteSnafu)?;
+            g.original_description, g.language, g.archive_state, g.logo_path, g.screenshot_path, g.ruffle_support, g.id]).context(error::SqliteSnafu)?;
     }
 
     println!("Inserting games");
@@ -393,8 +395,8 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
         platformName, platformId, platformsStr, dateAdded, dateModified, broken, extreme, playMode, status,
         notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version,
         originalDescription, language, activeDataId, activeDataOnDisk, playtime,
-        archiveState, orderTitle, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?,
-        ?, ?, (SELECT platformId FROM platform_alias WHERE name = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
+        archiveState, orderTitle, logoPath, screenshotPath, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?,
+        ?, ?, (SELECT platformId FROM platform_alias WHERE name = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
 
     for g in games_res.games.iter().filter(|p| !existing_ids.contains(&p.id)) {
         insert_game_stmt.execute(params![
@@ -402,7 +404,7 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
             g.platform_name, g.platform_name, "", g.date_added, g.date_modified, false, false, g.play_mode, g.status,
             g.notes, "", g.source, g.application_path, g.launch_command, g.release_date, g.version,
             g.original_description, g.language, -1, false, 0,
-            g.archive_state, "", g.ruffle_support,
+            g.archive_state, "", g.logo_path, g.screenshot_path, g.ruffle_support,
         ]).context(error::SqliteSnafu)?;
     }
 

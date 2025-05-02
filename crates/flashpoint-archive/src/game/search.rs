@@ -3,13 +3,13 @@ use std::{collections::HashMap, fmt::Display, rc::Rc, hash::Hash};
 use fancy_regex::{Captures, Regex};
 use rusqlite::{
     params,
-    types::{ToSqlOutput, Value},
+    types::{ToSqlOutput, Value, ValueRef},
     Connection, OptionalExtension, Result, ToSql,
 };
 
 use crate::{debug_println, game::{ext::ExtSearchableType, get_game_add_apps}};
 
-use super::{ext::ExtSearchableRegistered, get_game_data, get_game_platforms, get_game_tags, Game};
+use super::{ext::ExtSearchableRegistered, find_ext_data, get_game_data, get_game_platforms, get_game_tags, Game};
 
 #[derive(Debug, Clone)]
 pub enum SearchParam {
@@ -17,6 +17,7 @@ pub enum SearchParam {
     String(String),
     StringVec(Vec<String>),
     Integer64(i64),
+    Value(serde_json::Value),
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +40,14 @@ impl ToSql for SearchParam {
                 Ok(ToSqlOutput::Array(v))
             }
             SearchParam::Integer64(i) => Ok(ToSqlOutput::from(i.clone())),
+            SearchParam::Value(v) => match v {
+                serde_json::Value::Null => Ok(ToSqlOutput::Borrowed(ValueRef::Null)),
+                serde_json::Value::Number(n) if n.is_i64() => Ok(ToSqlOutput::from(n.as_i64().unwrap())),
+                serde_json::Value::Number(n) if n.is_f64() => Ok(ToSqlOutput::from(n.as_f64().unwrap())),
+                _ => serde_json::to_string(v)
+                    .map(ToSqlOutput::from)
+                    .map_err(|err| rusqlite::Error::ToSqlConversionFailure(err.into())),
+            },
         }
     }
 }
@@ -50,6 +59,7 @@ impl Display for SearchParam {
             SearchParam::String(s) => f.write_str(s),
             SearchParam::StringVec(m) => f.write_str(format!("{}", m.join("', '")).as_str()),
             SearchParam::Integer64(i) => f.write_str(i.to_string().as_str()),
+            SearchParam::Value(v) => f.write_str(serde_json::to_string(v).unwrap_or_default().as_str()),
         }
     }
 }
@@ -61,6 +71,7 @@ pub struct GameSearch {
     pub load_relations: GameSearchRelations,
     pub custom_id_order: Option<Vec<String>>,
     pub order: GameSearchOrder,
+    pub ext_order: Option<GameSearchOrderExt>,
     pub offset: Option<GameSearchOffset>,
     pub limit: i64,
     pub slim: bool,
@@ -80,6 +91,14 @@ pub struct GameSearchOffset {
 pub struct GameSearchOrder {
     pub column: GameSearchSortable,
     pub direction: GameSearchDirection,
+}
+
+#[cfg_attr(feature = "napi", napi(object))]
+#[derive(Debug, Clone)]
+pub struct GameSearchOrderExt {
+    pub ext_id: String,
+    pub key: String,
+    pub default: serde_json::Value,
 }
 
 #[cfg_attr(feature = "napi", napi)]
@@ -115,7 +134,7 @@ pub struct GameSearchRelations {
     pub platforms: bool,
     pub game_data: bool,
     pub add_apps: bool,
-    pub ext: HashMap<String, HashMap<String, bool>>,
+    pub ext_data: bool,
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
@@ -233,6 +252,7 @@ impl Default for GameSearch {
                 direction: GameSearchDirection::ASC,
             },
             custom_id_order: None,
+            ext_order: None,
             offset: None,
             limit: 1000,
             slim: false,
@@ -265,7 +285,7 @@ impl Default for GameSearchRelations {
             platforms: false,
             game_data: false,
             add_apps: false,
-            ext: HashMap::default(),
+            ext_data: true,
         }
     }
 }
@@ -659,12 +679,12 @@ const RESULTS_QUERY: &str =
 platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
 tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
 originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, ruffleSupport \
+activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, logoPath, screenshotPath, ruffleSupport \
 FROM game";
 
 const SLIM_RESULTS_QUERY: &str =
     "SELECT game.id, title, series, developer, publisher, platformsStr, 
-platformName, tagsStr, library 
+platformName, tagsStr, library, logoPath, screenshotPath 
 FROM game";
 
 const TAG_FILTER_INDEX_QUERY: &str = "INSERT INTO tag_filter_index (id) SELECT game.id FROM game";
@@ -716,18 +736,36 @@ pub fn search_index(
     };
     let page_size = search.limit;
     search.limit = limit.or_else(|| Some(999999999)).unwrap();
-    let selection = match search.order.column {
-        GameSearchSortable::CUSTOM => "
-        WITH OrderedIDs AS (
-            SELECT
-            id,
-            ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RowNum
-            FROM custom_id_order
-        ) 
-        SELECT game.id, OrderedIDs.RowNum, game.title, ROW_NUMBER() OVER (ORDER BY OrderedIDs.RowNum, game.title, game.id) AS rn FROM game".to_owned(),
-        _ => format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} COLLATE NOCASE {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction)
+    let selection = match &search.ext_order {
+        Some(ext_order) => format!("
+            WITH OrderedExt AS (
+                SELECT
+                    gameId AS id,
+                    COALESCE(JSON_EXTRACT(data, '$.{}'), {}) AS ExtValue
+                FROM ext_data
+                WHERE extId = '{}'
+            )
+            SELECT 
+                game.id, 
+                OrderedExt.ExtValue, 
+                game.title, 
+                ROW_NUMBER() OVER (ORDER BY OrderedExt.ExtValue, game.title, game.id) AS rn 
+            FROM game", 
+            ext_order.key, ext_order.default.to_string(), ext_order.ext_id),
+        None => match search.order.column {
+            GameSearchSortable::CUSTOM => "
+            WITH OrderedIDs AS (
+                SELECT
+                id,
+                ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS RowNum
+                FROM custom_id_order
+            ) 
+            SELECT game.id, OrderedIDs.RowNum, game.title, ROW_NUMBER() OVER (ORDER BY OrderedIDs.RowNum, game.title, game.id) AS rn FROM game".to_owned(),
+            _ => format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} COLLATE NOCASE {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction)
+        }
     };
     let (mut query, mut params) = build_search_query(search, &selection);
+    
 
     // Add the weirdness
     query = format!(
@@ -775,7 +813,16 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
     rusqlite::vtab::array::load_module(conn)?;
 
     let mut selection = COUNT_QUERY.to_owned();
-    if search.order.column == GameSearchSortable::CUSTOM {
+    if let Some(ext_order) = &search.ext_order {
+        selection = format!("WITH OrderedExt AS (
+            SELECT
+                gameId AS id,
+                COALESCE(JSON_EXTRACT(data, '$.{}'), {}) AS ExtValue
+            FROM ext_data
+            WHERE extId = '{}'
+        ) ", ext_order.key, ext_order.default.to_string(), ext_order.ext_id)
+            + &selection;
+    } else if search.order.column == GameSearchSortable::CUSTOM {
         selection = "WITH OrderedIDs AS (
             SELECT
             id,
@@ -785,6 +832,7 @@ pub fn search_count(conn: &Connection, search: &GameSearch) -> Result<i64> {
         .to_owned()
             + &selection;
     }
+    
     let (query, params) = build_search_query(search, &selection);
     debug_println!(
         "search count query - \n{}",
@@ -843,7 +891,16 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
         true => SLIM_RESULTS_QUERY.to_owned(),
         false => RESULTS_QUERY.to_owned(),
     };
-    if search.order.column == GameSearchSortable::CUSTOM {
+    if let Some(ext_order) = &search.ext_order {
+        selection = format!("WITH OrderedExt AS (
+            SELECT
+                gameId AS id,
+                COALESCE(JSON_EXTRACT(data, '$.{}'), {}) AS ExtValue
+            FROM ext_data
+            WHERE extId = '{}'
+        ) ", ext_order.key, ext_order.default.to_string(), ext_order.ext_id)
+            + &selection;
+    } else if search.order.column == GameSearchSortable::CUSTOM {
         selection = "WITH OrderedIDs AS (
             SELECT
             id,
@@ -866,6 +923,8 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 primary_platform: row.get(6)?,
                 tags: row.get(7)?,
                 library: row.get(8)?,
+                logo_path: row.get(9)?,
+                screenshot_path: row.get(10)?,
                 ..Default::default()
             })
         },
@@ -907,7 +966,9 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 detailed_tags: None,
                 game_data: None,
                 add_apps: None,
-                ruffle_support: row.get(32)?,
+                logo_path: row.get(32)?,
+                screenshot_path: row.get(33)?,
+                ruffle_support: row.get(34)?,
                 ext_data: None,
             })
         },
@@ -927,6 +988,9 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
         }
         if search.load_relations.add_apps {
             game.add_apps = Some(get_game_add_apps(conn, &game.id)?);
+        }
+        if search.load_relations.ext_data {
+            game.ext_data = Some(find_ext_data(conn, &game.id)?);
         }
     }
 
@@ -954,24 +1018,29 @@ pub fn search_random(conn: &Connection, mut s: GameSearch, count: i64) -> Result
 fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<SearchParam>) {
     let mut query = String::from(selection);
 
-    if search.order.column == GameSearchSortable::CUSTOM {
+    if search.ext_order.is_some() {
+        query.push_str(" INNER JOIN OrderedExt ON game.id = OrderedExt.id");
+    } else if search.order.column == GameSearchSortable::CUSTOM {
         query.push_str(" INNER JOIN OrderedIDs ON game.id = OrderedIDs.id");
     }
 
     // Ordering
-    let order_column = match search.order.column {
-        GameSearchSortable::TITLE => "game.title",
-        GameSearchSortable::DEVELOPER => "game.developer",
-        GameSearchSortable::PUBLISHER => "game.publisher",
-        GameSearchSortable::SERIES => "game.series",
-        GameSearchSortable::PLATFORM => "game.platformName",
-        GameSearchSortable::DATEADDED => "game.dateAdded",
-        GameSearchSortable::DATEMODIFIED => "game.dateModified",
-        GameSearchSortable::RELEASEDATE => "game.releaseDate",
-        GameSearchSortable::LASTPLAYED => "game.lastPlayed",
-        GameSearchSortable::PLAYTIME => "game.playtime",
-        GameSearchSortable::CUSTOM => "OrderedIDs.RowNum",
-        _ => "unknown",
+    let order_column = match search.ext_order {
+        Some(_) => "OrderedExt.ExtValue",
+        None => match search.order.column {
+            GameSearchSortable::TITLE => "game.title",
+            GameSearchSortable::DEVELOPER => "game.developer",
+            GameSearchSortable::PUBLISHER => "game.publisher",
+            GameSearchSortable::SERIES => "game.series",
+            GameSearchSortable::PLATFORM => "game.platformName",
+            GameSearchSortable::DATEADDED => "game.dateAdded",
+            GameSearchSortable::DATEMODIFIED => "game.dateModified",
+            GameSearchSortable::RELEASEDATE => "game.releaseDate",
+            GameSearchSortable::LASTPLAYED => "game.lastPlayed",
+            GameSearchSortable::PLAYTIME => "game.playtime",
+            GameSearchSortable::CUSTOM => "OrderedIDs.RowNum",
+            _ => "unknown",
+        }
     };
     let order_direction = match search.order.direction {
         GameSearchDirection::ASC => "ASC",
