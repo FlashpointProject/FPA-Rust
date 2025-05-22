@@ -764,13 +764,19 @@ pub fn search_index(
             _ => format!("SELECT game.id, {}, game.title, ROW_NUMBER() OVER (ORDER BY {} COLLATE NOCASE {}, game.title {}, game.id) AS rn FROM game", order_column, order_column, order_direction, order_direction)
         }
     };
+
+    // Override ordering for ext sorts
+    let adjusted_order_column = match &search.ext_order {
+        Some(_) => "ExtValue",
+        None => order_column
+    };
+
     let (mut query, mut params) = build_search_query(search, &selection);
     
-
     // Add the weirdness
     query = format!(
         "SELECT game.id, {}, game.title FROM ({}) game WHERE rn % ? = 0",
-        order_column, query
+        adjusted_order_column, query
     );
     params.push(SearchParam::String(page_size.to_string()));
 

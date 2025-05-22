@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "flashpoint-archive"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54c1b19619450334ce575256131c67607a75db7667150c6cc4bf54adc219a502"
+checksum = "e7359bdeb4ef32afb1dee33e0b1822b84754f9d77cdc3373fce3849bbb7e8816"
 dependencies = [
  "chrono",
  "fancy-regex",

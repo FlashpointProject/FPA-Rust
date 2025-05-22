@@ -298,8 +298,8 @@ pub fn get() -> Migrations<'static> {
         M::up(r#"
             ALTER TABLE game ADD COLUMN "logoPath" varchar;
             ALTER TABLE game ADD COLUMN "screenshotPath" varchar;
-            UPDATE game SET logoPath = SUBSTR(id, 1, 2) || '/' || SUBSTR(id, 3, 2) || '/' || id || '.png';
-            UPDATE game SET screenshotPath = SUBSTR(id, 1, 2) || '/' || SUBSTR(id, 3, 2) || '/' || id || '.png';
+            UPDATE game SET logoPath = 'Logos/' || SUBSTR(id, 1, 2) || '/' || SUBSTR(id, 3, 2) || '/' || id || '.png';
+            UPDATE game SET screenshotPath = 'Screenshots/' || SUBSTR(id, 1, 2) || '/' || SUBSTR(id, 3, 2) || '/' || id || '.png';
         "#),
     ]);
 
