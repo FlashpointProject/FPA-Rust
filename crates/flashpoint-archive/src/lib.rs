@@ -597,7 +597,7 @@ macro_rules! debug_println {
 #[cfg(test)]
 mod tests {
 
-    use crate::game::{ext::ExtSearchable, search::{parse_user_input, FieldFilter, GameFilter, GameSearchOffset}};
+    use crate::game::{ext::ExtSearchable, search::{parse_user_input, FieldFilter, GameFilter, GameSearchOffset, GameSearchSortable}};
 
     use super::*;
 
@@ -692,6 +692,7 @@ mod tests {
         search.filter.subfilters = vec![inner_filter];
         search.filter.exact_blacklist.tags = Some(vec!["Sonic The Hedgehog".to_owned()]);
         search.filter.match_any = false; // AND
+        search.order.column = GameSearchSortable::TITLE;
 
         // Test total results
         enable_debug();
@@ -716,7 +717,7 @@ mod tests {
 
         // Test last page results
         search.offset = Some(GameSearchOffset{
-            value: page_end_game.title.clone(),
+            value: serde_json::Value::String(page_end_game.title.clone()),
             game_id: page_end_game.id.clone(),
             title: page_end_game.title.clone(),
         });

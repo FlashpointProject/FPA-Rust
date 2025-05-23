@@ -17,6 +17,7 @@ pub enum SearchParam {
     String(String),
     StringVec(Vec<String>),
     Integer64(i64),
+    Float64(f64),
     Value(serde_json::Value),
 }
 
@@ -40,6 +41,7 @@ impl ToSql for SearchParam {
                 Ok(ToSqlOutput::Array(v))
             }
             SearchParam::Integer64(i) => Ok(ToSqlOutput::from(i.clone())),
+            SearchParam::Float64(f) => Ok(ToSqlOutput::from(f.clone())),
             SearchParam::Value(v) => match v {
                 serde_json::Value::Null => Ok(ToSqlOutput::Borrowed(ValueRef::Null)),
                 serde_json::Value::Number(n) if n.is_i64() => Ok(ToSqlOutput::from(n.as_i64().unwrap())),
@@ -59,6 +61,7 @@ impl Display for SearchParam {
             SearchParam::String(s) => f.write_str(s),
             SearchParam::StringVec(m) => f.write_str(format!("{}", m.join("', '")).as_str()),
             SearchParam::Integer64(i) => f.write_str(i.to_string().as_str()),
+            SearchParam::Float64(nf) => f.write_str(nf.to_string().as_str()),
             SearchParam::Value(v) => f.write_str(serde_json::to_string(v).unwrap_or_default().as_str()),
         }
     }
@@ -81,7 +84,7 @@ pub struct GameSearch {
 #[cfg_attr(feature = "napi", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GameSearchOffset {
-    pub value: String,
+    pub value: serde_json::Value,
     pub title: String, // Secondary sort always
     pub game_id: String,
 }
@@ -238,7 +241,7 @@ struct ForcedFieldFilter {
 #[derive(Debug, Clone)]
 pub struct PageTuple {
     pub id: String,
-    pub order_val: String,
+    pub order_val: serde_json::Value,
     pub title: String,
 }
 
@@ -790,21 +793,20 @@ pub fn search_index(
     );
     let mut stmt = conn.prepare(&query)?;
     let page_tuple_iter = stmt.query_map(params_as_refs.as_slice(), |row| {
-        let order_val = match search.order.column {
-            GameSearchSortable::PLAYTIME | GameSearchSortable::CUSTOM => {
-                match row.get::<_, Option<i64>>(1)? {
-                    Some(value) => value.to_string(),
-                    None => "0".to_string(), // Handle NULL as you see fit
-                }
-            }
-            _ => match row.get::<_, Option<String>>(1)? {
-                Some(value) => value,
-                None => "".to_string(), // Handle NULL as you see fit
-            },
+        let order_val = match row.get::<_, Option<Value>>(1)? {
+            Some(value) => value,
+            None => Value::Text("".to_string()), // Handle NULL as you see fit
         };
         Ok(PageTuple {
             id: row.get(0)?,
-            order_val,
+            order_val: match order_val {
+                Value::Text(v) => serde_json::Value::String(v),
+                Value::Integer(v) => serde_json::Value::Number(v.into()),
+                Value::Real(v) => serde_json::Value::Number(
+                    serde_json::Number::from_f64(v).unwrap_or_else(|| serde_json::Number::from(0))
+                ),
+                _ => serde_json::Value::Null
+            },
             title: row.get(2)?,
         })
     })?;
@@ -1066,10 +1068,14 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
 
     // Add offset
     if let Some(offset) = search.offset.clone() {
+        let offset_val = match offset.value {
+            serde_json::Value::Number(number) => SearchParam::Float64(number.as_f64().unwrap_or(0.into())),
+            val => SearchParam::String(val.as_str().unwrap_or("").to_owned()),
+        };
         if search.order.column == GameSearchSortable::CUSTOM {
             let offset_clause = format!(" WHERE OrderedIDs.RowNum > ?");
             query.push_str(&offset_clause);
-            params.insert(0, SearchParam::Integer64(coerce_to_i64(&offset.value)));
+            params.insert(0, offset_val);
         } else {
             let offset_clause = match search.order.direction {
                 GameSearchDirection::ASC => {
@@ -1090,7 +1096,7 @@ fn build_search_query(search: &GameSearch, selection: &str) -> (String, Vec<Sear
             // Insert in reverse order
             params.insert(0, SearchParam::String(offset.game_id.clone()));
             params.insert(0, SearchParam::String(offset.title.clone()));
-            params.insert(0, SearchParam::String(offset.value.clone()));
+            params.insert(0, offset_val);
         }
     }
 
