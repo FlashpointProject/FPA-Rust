@@ -3,17 +3,34 @@
 use std::error::Error;
 use std::fs;
 
+use clap::{command, Parser};
+use flashpoint_archive::game::search::{GameSearchDirection, GameSearchSortable};
 use flashpoint_archive::{update::RemoteCategory, FlashpointArchive};
 use flashpoint_archive::update::{RemoteGamesRes, RemotePlatform, RemoteTag};
 use serde::{Deserialize, Serialize};
 
-const BASE_URL: &str = "https://fpfss.unstable.life";
+const DEFAULT_BASE_URL: &str = "https://fpfss.unstable.life";
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// FPFSS url, without ending slash
+    #[arg(long, default_value_t = String::from(DEFAULT_BASE_URL))]
+    url: String,
+
+    /// Update the existing database instead of replacing it with a new one
+    #[arg(short, long, action)]
+    update: bool,
+}
 
 #[tokio::main]
 async fn main() {
+    // Parse arguments
+    let args = Args::parse();
+
     // Delete database if exists
     let db_path = "./flashpoint.sqlite";
-    if fs::metadata(db_path).is_ok() {
+    if !args.update && fs::metadata(db_path).is_ok() {
         fs::remove_file(db_path).expect("Failed to delete existing database");
     }
 
@@ -21,15 +38,31 @@ async fn main() {
     let mut fp = FlashpointArchive::new();
     fp.load_database(db_path).expect("Failed to load database");
 
-    let updates_ready = fetch_update_info(BASE_URL).await.expect("Failed to check update count");
+    let mut search = fp.parse_user_input("").search;
+    search.order.column = GameSearchSortable::DATEMODIFIED;
+    search.order.direction = GameSearchDirection::DESC;
+
+    // Find last date, use for avoiding redundant updates
+    let existing_games = fp.search_games(&search).await.expect("Failed to search db");
+    let last_date = if existing_games.len() > 0 {
+        &existing_games.get(0).unwrap().date_modified
+    } else {
+        "1970-01-01"
+    };
+
+    if args.update {
+        println!("Update Mode: Latest date {}", last_date);
+    }
+
+    let updates_ready = fetch_update_info(&args.url, last_date).await.expect("Failed to check update count");
 
     println!("Fetching {} game updates...", updates_ready);
 
-    let plats = fetch_platforms(BASE_URL).await.expect("Failed to search platforms");
+    let plats = fetch_platforms(&args.url).await.expect("Failed to search platforms");
     println!("Applying {} platforms", plats.len());
     fp.update_apply_platforms(plats).await.expect("Failed to update platforms in database");
 
-    let tags_res = fetch_tags(BASE_URL).await.expect("Failed to search tags and categories");
+    let tags_res = fetch_tags(&args.url).await.expect("Failed to search tags and categories");
     println!("Applying {} categories", tags_res.categories.len());
     fp.update_apply_categories(tags_res.categories).await.expect("Failed to update categories in database");
     println!("Applying {} tags", tags_res.tags.len());
@@ -48,7 +81,7 @@ async fn main() {
     let mut next_id = None;
     loop {
         println!("Fetching page {}", page_num);
-        let res = fetch_games(BASE_URL, next_id.clone()).await.expect("Failed to fetch games page");
+        let res = fetch_games(&args.url, last_date, next_id.clone()).await.expect("Failed to fetch games page");
         page_num += 1;
         if res.games.len() > 0 {
             total_applied_games += res.games.len();
@@ -97,11 +130,11 @@ async fn fetch_tags(base_url: &str) -> Result<RemoteTagRes, Box<dyn Error>> {
     Ok(res)
 }
 
-async fn fetch_games(base_url: &str, last_id: Option<String>) -> Result<RemoteGamesRes, Box<dyn Error>> {
+async fn fetch_games(base_url: &str, last_date: &str, last_id: Option<String>) -> Result<RemoteGamesRes, Box<dyn Error>> {
     let mut games_url = format!(
         "{}/api/games?broad=true&after={}",
         base_url,
-        "1970-01-01"
+        last_date
     );
 
     if let Some(id) = last_id {
@@ -116,11 +149,11 @@ async fn fetch_games(base_url: &str, last_id: Option<String>) -> Result<RemoteGa
     Ok(resp)
 }
 
-async fn fetch_update_info(base_url: &str) -> Result<i64, Box<dyn Error>> {
+async fn fetch_update_info(base_url: &str, last_date: &str) -> Result<i64, Box<dyn Error>> {
     let count_url = format!(
         "{}/api/games/updates?after={}",
         base_url,
-        "1970-01-01"
+        last_date
     );
 
     let resp = reqwest::get(&count_url)

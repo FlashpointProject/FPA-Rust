@@ -102,8 +102,8 @@ pub struct RemoteGame {
     pub library: String,
     pub platform_name: String,
     pub archive_state: i32,
-    pub logo_path: String,
-    pub screenshot_path: String,
+    pub logo_path: Option<String>,
+    pub screenshot_path: Option<String>,
     pub ruffle_support: String,
 }
 
@@ -380,12 +380,14 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
         originalDescription = ?, language = ?, archiveState = ?, logoPath = ?, screenshotPath = ?, ruffleSupport = ? WHERE id = ?").context(error::SqliteSnafu)?;
 
     for g in games_res.games.iter().filter(|p| existing_ids.contains(&p.id)) {
+        let logo_path = g.logo_path.clone().unwrap_or_else(|| format!("Logos/{}/{}/{}.png", &g.id[0..2], &g.id[2..4], g.id));
+        let ss_path = g.screenshot_path.clone().unwrap_or_else(|| format!("Screenshots/{}/{}/{}.png", &g.id[0..2], &g.id[2..4], g.id));
         update_game_stmt.execute(params![
             g.library, g.title, g.alternate_titles, g.series, g.developer, g.publisher,
             g.platform_name, g.platform_name, "", g.date_added, g.date_modified,
             g.play_mode, g.status, g.notes, g.source,
             g.application_path, g.launch_command, g.release_date, g.version,
-            g.original_description, g.language, g.archive_state, g.logo_path, g.screenshot_path, g.ruffle_support, g.id]).context(error::SqliteSnafu)?;
+            g.original_description, g.language, g.archive_state, logo_path, ss_path, g.ruffle_support, g.id]).context(error::SqliteSnafu)?;
     }
 
     println!("Inserting games");
