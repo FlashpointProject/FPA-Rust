@@ -471,6 +471,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "flashpoint-content-downloader"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "flashpoint-archive",
+ "reqwest",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "flashpoint-database-builder"
 version = "0.1.0"
 dependencies = [

@@ -9,18 +9,19 @@ use flashpoint_archive::{update::RemoteCategory, FlashpointArchive};
 use flashpoint_archive::update::{RemoteGamesRes, RemotePlatform, RemoteTag};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_BASE_URL: &str = "https://fpfss.unstable.life";
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// FPFSS url, without ending slash
-    #[arg(long, default_value_t = String::from(DEFAULT_BASE_URL))]
+    #[arg(long, default_value_t = String::from("https://fpfss.unstable.life"))]
     url: String,
 
     /// Update the existing database instead of replacing it with a new one
     #[arg(short, long, action)]
     update: bool,
+
+    #[arg(short, long, default_value_t = String::from("./flashpoint.sqlite"))]
+    database: String,
 }
 
 #[tokio::main]
@@ -29,14 +30,13 @@ async fn main() {
     let args = Args::parse();
 
     // Delete database if exists
-    let db_path = "./flashpoint.sqlite";
-    if !args.update && fs::metadata(db_path).is_ok() {
-        fs::remove_file(db_path).expect("Failed to delete existing database");
+    if !args.update && fs::metadata(&args.database).is_ok() {
+        fs::remove_file(&args.database).expect("Failed to delete existing database");
     }
 
     // Open database
     let mut fp = FlashpointArchive::new();
-    fp.load_database(db_path).expect("Failed to load database");
+    fp.load_database(&args.database).expect("Failed to load database");
 
     let mut search = fp.parse_user_input("").search;
     search.order.column = GameSearchSortable::DATEMODIFIED;
