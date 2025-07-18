@@ -86,7 +86,7 @@ async fn main() {
         if res.games.len() > 0 {
             total_applied_games += res.games.len();
             next_id = Some(res.games.last().unwrap().id.clone());
-            fp.update_apply_games(&res).await.expect("Failed to apply game page update");
+            fp.update_apply_games(&res, "flashpoint-archive").await.expect("Failed to apply game page update");
         } else {
             break;
         }

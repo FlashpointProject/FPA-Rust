@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::game::GameRedirect;
 use crate::{error, game, tag, tag_category};
 use crate::error::Result;
-use crate::game::search::mark_index_dirty;
+use crate::game::search::{mark_index_dirty, GameSearch};
 use crate::platform;
 
 #[derive(Debug, Clone)]
@@ -312,7 +312,7 @@ pub fn apply_tags(conn: &Connection, tags: Vec<RemoteTag>) -> Result<()> {
     Ok(())
 }
 
-pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> {
+pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes, owner: &str) -> Result<()> {
     // Allow use of rarray() in SQL queries
     rusqlite::vtab::array::load_module(conn).context(error::SqliteSnafu)?;
 
@@ -369,6 +369,13 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
     }
 
     let existing_ids = game::find_all_ids(conn).context(error::SqliteSnafu)?;
+    let mut taken_search = GameSearch::default();
+    taken_search.limit = 99999999999;
+    taken_search.filter.exact_blacklist.owner = Some(vec![owner.to_owned()]);
+    let taken_res = game::search::search(conn, &taken_search).context(error::SqliteSnafu)?;
+    let taken_ids: Vec<String> = taken_res.into_iter()
+    .map(|item| item.id)
+    .collect();
 
     println!("Updating games");
 
@@ -377,9 +384,9 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
         platformName = ?, platformId = (SELECT platformId FROM platform_alias WHERE name = ?), platformsStr = ?, dateAdded = ?, dateModified = ?, 
         playMode = ?, status = ?, notes = ?, source = ?, activeDataId = -1,
         applicationPath = ?, launchCommand = ?, releaseDate = ?, version = ?,
-        originalDescription = ?, language = ?, archiveState = ?, logoPath = ?, screenshotPath = ?, ruffleSupport = ? WHERE id = ?").context(error::SqliteSnafu)?;
+        originalDescription = ?, language = ?, archiveState = ?, logoPath = ?, screenshotPath = ?, ruffleSupport = ?, owner = ? WHERE id = ?").context(error::SqliteSnafu)?;
 
-    for g in games_res.games.iter().filter(|p| existing_ids.contains(&p.id)) {
+    for g in games_res.games.iter().filter(|p| existing_ids.contains(&p.id) && !taken_ids.contains(&p.id)) {
         let logo_path = g.logo_path.clone().unwrap_or_else(|| format!("Logos/{}/{}/{}.png", &g.id[0..2], &g.id[2..4], g.id));
         let ss_path = g.screenshot_path.clone().unwrap_or_else(|| format!("Screenshots/{}/{}/{}.png", &g.id[0..2], &g.id[2..4], g.id));
         update_game_stmt.execute(params![
@@ -387,7 +394,7 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
             g.platform_name, g.platform_name, "", g.date_added, g.date_modified,
             g.play_mode, g.status, g.notes, g.source,
             g.application_path, g.launch_command, g.release_date, g.version,
-            g.original_description, g.language, g.archive_state, logo_path, ss_path, g.ruffle_support, g.id]).context(error::SqliteSnafu)?;
+            g.original_description, g.language, g.archive_state, logo_path, ss_path, g.ruffle_support, owner, g.id]).context(error::SqliteSnafu)?;
     }
 
     println!("Inserting games");
@@ -397,16 +404,16 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes) -> Result<()> 
         platformName, platformId, platformsStr, dateAdded, dateModified, broken, extreme, playMode, status,
         notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version,
         originalDescription, language, activeDataId, activeDataOnDisk, playtime,
-        archiveState, orderTitle, logoPath, screenshotPath, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?,
+        archiveState, orderTitle, logoPath, screenshotPath, ruffleSupport, owner) VALUES (?, ?, ?, ?, ?, ?, ?,
         ?, ?, (SELECT platformId FROM platform_alias WHERE name = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
 
-    for g in games_res.games.iter().filter(|p| !existing_ids.contains(&p.id)) {
+    for g in games_res.games.iter().filter(|p| !existing_ids.contains(&p.id) && !taken_ids.contains(&p.id)) {
         insert_game_stmt.execute(params![
             g.id, g.library, g.title, g.alternate_titles, g.series, g.developer, g.publisher,
             g.platform_name, g.platform_name, "", g.date_added, g.date_modified, false, false, g.play_mode, g.status,
             g.notes, "", g.source, g.application_path, g.launch_command, g.release_date, g.version,
             g.original_description, g.language, -1, false, 0,
-            g.archive_state, "", g.logo_path, g.screenshot_path, g.ruffle_support,
+            g.archive_state, "", g.logo_path, g.screenshot_path, g.ruffle_support, owner,
         ]).context(error::SqliteSnafu)?;
     }
 

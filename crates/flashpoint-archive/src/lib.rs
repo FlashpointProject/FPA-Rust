@@ -474,9 +474,9 @@ impl FlashpointArchive {
         })
     }
 
-    pub async fn update_apply_games(&self, games_res: &RemoteGamesRes) -> Result<()> {
+    pub async fn update_apply_games(&self, games_res: &RemoteGamesRes, owner: &str) -> Result<()> {
         with_transaction!(&self.pool, |conn| {
-            update::apply_games(conn, games_res)
+            update::apply_games(conn, games_res, owner)
         })
     }
 

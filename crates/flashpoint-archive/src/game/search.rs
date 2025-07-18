@@ -176,6 +176,7 @@ pub struct FieldFilter {
     pub application_path: Option<Vec<String>>,
     pub launch_command: Option<Vec<String>>,
     pub ruffle_support: Option<Vec<String>>,
+    pub owner: Option<Vec<String>>,
     pub ext: Option<HashMap<String, HashMap<String, Vec<String>>>>,
 }
 
@@ -234,6 +235,7 @@ struct ForcedFieldFilter {
     pub application_path: Vec<String>,
     pub launch_command: Vec<String>,
     pub ruffle_support: Vec<String>,
+    pub owner: Vec<String>,
     pub ext: HashMap<String, HashMap<String, Vec<String>>>,
 }
 
@@ -314,6 +316,7 @@ impl Default for FieldFilter {
             application_path: None,
             launch_command: None,
             ruffle_support: None,
+            owner: None,
             ext: None,
         }
     }
@@ -355,6 +358,7 @@ impl Default for ForcedFieldFilter {
             application_path: vec![],
             launch_command: vec![],
             ruffle_support: vec![],
+            owner: vec![],
             ext: HashMap::default(),
         }
     }
@@ -445,6 +449,9 @@ impl From<&ForcedGameFilter> for GameFilter {
         if value.whitelist.ruffle_support.len() > 0 {
             search.whitelist.ruffle_support = Some(value.whitelist.ruffle_support.clone());
         }
+        if value.whitelist.owner.len() > 0 {
+            search.whitelist.owner = Some(value.whitelist.owner.clone());
+        }
         if value.whitelist.ext.len() > 0 {
             search.whitelist.ext = Some(value.whitelist.ext.clone());
         }
@@ -502,6 +509,9 @@ impl From<&ForcedGameFilter> for GameFilter {
         }
         if value.blacklist.ruffle_support.len() > 0 {
             search.blacklist.ruffle_support = Some(value.blacklist.ruffle_support.clone());
+        }
+        if value.blacklist.owner.len() > 0 {
+            search.blacklist.owner = Some(value.blacklist.owner.clone());
         }
         if value.blacklist.ext.len() > 0 {
             search.blacklist.ext = Some(value.blacklist.ext.clone());
@@ -564,6 +574,9 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_whitelist.ruffle_support =
                 Some(value.exact_whitelist.ruffle_support.clone());
         }
+        if value.exact_whitelist.owner.len() > 0 {
+            search.exact_whitelist.owner = Some(value.exact_whitelist.owner.clone());
+        }
         if value.exact_whitelist.ext.len() > 0 {
             search.exact_whitelist.ext = Some(value.exact_whitelist.ext.clone());
         }
@@ -625,6 +638,9 @@ impl From<&ForcedGameFilter> for GameFilter {
             search.exact_blacklist.ruffle_support =
                 Some(value.exact_blacklist.ruffle_support.clone());
         }
+        if value.exact_blacklist.owner.len() > 0 {
+            search.exact_blacklist.owner = Some(value.exact_blacklist.owner.clone());
+        }
         if value.exact_blacklist.ext.len() > 0 {
             search.exact_blacklist.ext = Some(value.exact_blacklist.ext.clone());
         }
@@ -682,12 +698,12 @@ const RESULTS_QUERY: &str =
 platformName, dateAdded, dateModified, broken, extreme, playMode, status, notes, \
 tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
 originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
-activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, logoPath, screenshotPath, ruffleSupport \
-FROM game";
+activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, logoPath, screenshotPath, ruffleSupport, \
+owner FROM game";
 
 const SLIM_RESULTS_QUERY: &str =
     "SELECT game.id, title, series, developer, publisher, platformsStr, 
-platformName, tagsStr, library, logoPath, screenshotPath 
+platformName, tagsStr, library, logoPath, screenshotPath, owner
 FROM game";
 
 const TAG_FILTER_INDEX_QUERY: &str = "INSERT INTO tag_filter_index (id) SELECT game.id FROM game";
@@ -933,6 +949,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 library: row.get(8)?,
                 logo_path: row.get(9)?,
                 screenshot_path: row.get(10)?,
+                owner: row.get(11)?,
                 ..Default::default()
             })
         },
@@ -977,6 +994,7 @@ pub fn search(conn: &Connection, search: &GameSearch) -> Result<Vec<Game>> {
                 logo_path: row.get(32)?,
                 screenshot_path: row.get(33)?,
                 ruffle_support: row.get(34)?,
+                owner: row.get(35)?,
                 ext_data: None,
             })
         },
@@ -1211,6 +1229,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         "ruffleSupport",
         &filter.exact_whitelist.ruffle_support
     );
+    exact_whitelist_clause!(add_clause, "owner", &filter.exact_whitelist.owner);
 
     // exact blacklist
     exact_blacklist_clause!(add_clause, "library", &filter.exact_blacklist.library);
@@ -1232,6 +1251,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         "ruffleSupport",
         &filter.exact_blacklist.ruffle_support
     );
+    exact_blacklist_clause!(add_clause, "owner", &filter.exact_blacklist.owner);
 
     // whitelist
     whitelist_clause!(add_clause, "library", &filter.whitelist.library);
@@ -1253,6 +1273,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         "ruffleSupport",
         &filter.whitelist.ruffle_support
     );
+    whitelist_clause!(add_clause, "owner", &filter.whitelist.owner);
 
     // blacklist
     blacklist_clause!(add_clause, "library", &filter.blacklist.library);
@@ -1274,6 +1295,7 @@ fn build_filter_query(filter: &GameFilter, params: &mut Vec<SearchParam>) -> Str
         "ruffleSupport",
         &filter.blacklist.ruffle_support
     );
+    blacklist_clause!(add_clause, "owner", &filter.blacklist.owner);
 
     let mut id_clause = |values: &Option<Vec<String>>, exact: bool, blacklist: bool| {
         if let Some(value_list) = values {
@@ -2654,6 +2676,7 @@ pub fn parse_user_input(input: &str, ext_searchables: Option<&HashMap<String, Ex
                     "ap" | "path" | "app" | "applicationpath" => list.application_path.push(value),
                     "lc" | "launchcommand" => list.launch_command.push(value),
                     "ruffle" | "rufflesupport" => list.ruffle_support.push(value.to_lowercase()),
+                    "owner" => list.owner.push(value),
                     _ => {
                         let processed = if let Some(ext_searchable) = ext_searchables.get(working_key.to_lowercase().as_str()) {
                             if ext_searchable.value_type == ExtSearchableType::String {

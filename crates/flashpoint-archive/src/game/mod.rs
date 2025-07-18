@@ -217,6 +217,7 @@ pub struct AdditionalApp {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Game {
     pub id: String,
+    pub owner: String,
     pub library: String,
     pub title: String,
     pub alternate_titles: String,
@@ -262,6 +263,7 @@ pub struct Game {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PartialGame {
     pub id: String,
+    pub owner: Option<String>,
     pub library: Option<String>,
     pub title: Option<String>,
     pub alternate_titles: Option<String>,
@@ -326,7 +328,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
         tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
         originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
         activeGameConfigId, activeGameConfigOwner, archiveState, library, playCounter, \
-        logoPath, screenshotPath, ruffleSupport \
+        logoPath, screenshotPath, ruffleSupport, owner \
         FROM game WHERE id = COALESCE((SELECT id FROM game_redirect WHERE sourceId = ?), ?)",
     )?;
 
@@ -372,6 +374,7 @@ pub fn find(conn: &Connection, id: &str) -> Result<Option<Game>> {
                 logo_path: row.get(32)?,
                 screenshot_path: row.get(33)?,
                 ruffle_support: row.get(34)?,
+                owner: row.get(35)?,
                 ext_data: None,
             })
         })
@@ -441,7 +444,7 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     }
 
     conn.execute(
-        "INSERT INTO game (id, library, title, alternateTitles, series, developer, publisher, \
+        "INSERT INTO game (id, owner, library, title, alternateTitles, series, developer, publisher, \
          platformName, platformsStr, dateAdded, dateModified, broken, extreme, playMode, status, \
          notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
          originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
@@ -449,6 +452,7 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)",
         params![
             &game.id,
+            &game.owner,
             &game.library,
             &game.title,
             &game.alternate_titles,
@@ -564,7 +568,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
 
         // Write back the changes to the database
         conn.execute(
-            "UPDATE game SET library = ?, title = ?, alternateTitles = ?, series = ?, developer = ?, publisher = ?, \
+            "UPDATE game SET owner = ?, library = ?, title = ?, alternateTitles = ?, series = ?, developer = ?, publisher = ?, \
              platformName = ?, platformsStr = ?, dateAdded = ?, dateModified = ?, broken = ?, \
              extreme = ?, playMode = ?, status = ?, notes = ?, tagsStr = ?, source = ?, \
              applicationPath = ?, launchCommand = ?, releaseDate = ?, version = ?, \
@@ -572,6 +576,7 @@ pub fn save(conn: &Connection, game: &PartialGame) -> Result<Game> {
              lastPlayed = ?, playtime = ?, playCounter = ?, activeGameConfigId = ?, activeGameConfigOwner = ?, \
              archiveState = ?, logoPath = ?, screenshotPath = ?, ruffleSupport = ? WHERE id = ?",
             params![
+                &existing_game.owner,
                 &existing_game.library,
                 &existing_game.title,
                 &existing_game.alternate_titles,
@@ -1141,6 +1146,7 @@ impl Default for PartialGame {
     fn default() -> Self {
         PartialGame {
             id: String::from(""),
+            owner: None,
             library: None,
             title: None,
             alternate_titles: None,
@@ -1186,6 +1192,7 @@ impl Default for Game {
     fn default() -> Self {
         Game {
             id: Uuid::new_v4().to_string(),
+            owner: String::from("local"),
             library: String::from("arcade"),
             title: String::default(),
             alternate_titles: String::default(),
@@ -1235,6 +1242,10 @@ impl Game {
             self.id = Uuid::new_v4().to_string();
         } else {
             self.id = source.id.clone();
+        }
+
+        if let Some(owner) = source.owner.clone() {
+            self.owner = owner;
         }
 
         if let Some(library) = source.library.clone() {
@@ -1406,6 +1417,7 @@ impl From<Game> for PartialGame {
 
         PartialGame {
             id: game.id,
+            owner: Some(game.owner),
             library: Some(game.library),
             title: Some(game.title),
             alternate_titles: Some(game.alternate_titles),
