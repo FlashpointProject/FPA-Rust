@@ -305,6 +305,10 @@ pub fn get() -> Migrations<'static> {
             ALTER TABLE game ADD COLUMN "owner" varchar;
             UPDATE game SET owner = "flashpoint-archive";
         "#),
+        M::up(r#"
+            UPDATE game SET logoPath = 'Logos/' || SUBSTR(id, 1, 2) || '/' || SUBSTR(id, 3, 2) || '/' || id || '.png' WHERE logoPath IS NULL;
+            UPDATE game SET screenshotPath = 'Screenshots/' || SUBSTR(id, 1, 2) || '/' || SUBSTR(id, 3, 2) || '/' || id || '.png' WHERE screenshotPath IS NULL;
+        "#),
     ]);
 
     migrations

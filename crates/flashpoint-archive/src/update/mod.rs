@@ -408,12 +408,14 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes, owner: &str) -
         ?, ?, (SELECT platformId FROM platform_alias WHERE name = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
 
     for g in games_res.games.iter().filter(|p| !existing_ids.contains(&p.id) && !taken_ids.contains(&p.id)) {
+        let logo_path = g.logo_path.clone().unwrap_or_else(|| format!("Logos/{}/{}/{}.png", &g.id[0..2], &g.id[2..4], g.id));
+        let ss_path = g.screenshot_path.clone().unwrap_or_else(|| format!("Screenshots/{}/{}/{}.png", &g.id[0..2], &g.id[2..4], g.id));
         insert_game_stmt.execute(params![
             g.id, g.library, g.title, g.alternate_titles, g.series, g.developer, g.publisher,
             g.platform_name, g.platform_name, "", g.date_added, g.date_modified, false, false, g.play_mode, g.status,
             g.notes, "", g.source, g.application_path, g.launch_command, g.release_date, g.version,
             g.original_description, g.language, -1, false, 0,
-            g.archive_state, "", g.logo_path, g.screenshot_path, g.ruffle_support, owner,
+            g.archive_state, "", logo_path, ss_path, g.ruffle_support, owner,
         ]).context(error::SqliteSnafu)?;
     }
 
