@@ -405,7 +405,7 @@ pub fn apply_games(conn: &Connection, games_res: &RemoteGamesRes, owner: &str) -
         notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version,
         originalDescription, language, activeDataId, activeDataOnDisk, playtime,
         archiveState, orderTitle, logoPath, screenshotPath, ruffleSupport, owner) VALUES (?, ?, ?, ?, ?, ?, ?,
-        ?, ?, (SELECT platformId FROM platform_alias WHERE name = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
+        ?, ?, (SELECT platformId FROM platform_alias WHERE name = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").context(error::SqliteSnafu)?;
 
     for g in games_res.games.iter().filter(|p| !existing_ids.contains(&p.id) && !taken_ids.contains(&p.id)) {
         insert_game_stmt.execute(params![
