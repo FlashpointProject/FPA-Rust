@@ -5,6 +5,7 @@ use rusqlite::Connection;
 use snafu::ResultExt;
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[derive(Clone)]
 pub struct ExtensionIndex {
     pub name: String,
     pub key: String,
@@ -20,6 +21,7 @@ pub enum ExtSearchableType {
 }
 
 #[cfg_attr(feature = "napi", napi(object))]
+#[derive(Clone)]
 pub struct ExtSearchable {
     pub key: String,
     pub value_type: ExtSearchableType,
@@ -32,6 +34,7 @@ pub struct ExtSearchableRegistered {
     pub value_type: ExtSearchableType,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "napi", napi(object))]
 pub struct ExtensionInfo {
     pub id: String,
@@ -58,11 +61,15 @@ impl ExtensionRegistry {
         ExtensionRegistry::default()
     }
 
-    pub fn register(&mut self, conn: &Connection, ext: ExtensionInfo) -> Result<()> {
+    pub fn create_ext_indices(&self, conn: &Connection, ext: ExtensionInfo) -> Result<()>  {
         // Create relevant indices if missing
         self.create_indexes(conn, &ext)
-            .context(error::SqliteSnafu)?;
+        .context(error::SqliteSnafu)?;
 
+        Ok(())
+    }
+
+    pub fn register_ext(&mut self, ext: ExtensionInfo) {
         // Insert to registry
         for searchable in &ext.searchables {
             self.searchables.insert(searchable.search_key.clone(), ExtSearchableRegistered {
@@ -72,8 +79,6 @@ impl ExtensionRegistry {
             });
         }
         self.extensions.insert(ext.id.clone(), ext);
-
-        Ok(())
     }
 
     fn create_indexes(&self, conn: &Connection, ext: &ExtensionInfo) -> rusqlite::Result<()> {

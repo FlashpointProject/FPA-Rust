@@ -449,7 +449,7 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
          notes, tagsStr, source, applicationPath, launchCommand, releaseDate, version, \
          originalDescription, language, activeDataId, activeDataOnDisk, lastPlayed, playtime, \
          activeGameConfigId, activeGameConfigOwner, archiveState, orderTitle, logoPath, screenshotPath, ruffleSupport) VALUES (?, ?, ?, ?, ?, ?, ?, \
-         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)",
+         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)",
         params![
             &game.id,
             &game.owner,

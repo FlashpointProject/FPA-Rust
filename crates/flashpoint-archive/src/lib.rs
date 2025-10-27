@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::{atomic::AtomicBool, mpsc, Arc}};
+use std::{collections::HashMap, sync::{Arc, Mutex, atomic::AtomicBool, mpsc}};
 use game::{ext::ExtensionInfo, search::{GameFilter, GameSearch, PageTuple, ParsedInput}, AdditionalApp, Game, GameRedirect, PartialGame};
 use game_data::{GameData, PartialGameData};
 use platform::PlatformAppPath;
@@ -42,6 +42,7 @@ lazy_static! {
 pub struct FlashpointArchive {
     pool: Option<Pool<SqliteConnectionManager>>,
     extensions: game::ext::ExtensionRegistry,
+    write_mutex: Mutex<()>,
 }
 
 impl FlashpointArchive {
@@ -49,6 +50,7 @@ impl FlashpointArchive {
         FlashpointArchive {
             pool: None,
             extensions: game::ext::ExtensionRegistry::new(),
+            write_mutex: Mutex::new(()),
         }
     }
 
@@ -81,9 +83,13 @@ impl FlashpointArchive {
     }
 
     pub fn register_extension(&mut self, ext: ExtensionInfo) -> Result<()> {
-        with_transaction!(&self.pool, |tx| {
-            self.extensions.register(tx, ext)
-        })
+        with_serialized_transaction!(&self, |tx| {
+            self.extensions.create_ext_indices(tx, ext.clone())
+        })?;
+
+        self.extensions.register_ext(ext);
+
+        Ok(())
     }
 
     pub async fn search_games(&self, search: &GameSearch) -> Result<Vec<game::Game>> {
@@ -144,13 +150,13 @@ impl FlashpointArchive {
     }
 
     pub async fn create_game(&self, partial_game: &PartialGame) -> Result<game::Game> {
-        with_transaction!(&self.pool, |tx| {
+        with_serialized_transaction!(&self, |tx| {
             game::create(tx, partial_game).context(error::SqliteSnafu)
         })
     }
 
     pub async fn save_game(&self, partial_game: &mut PartialGame) -> Result<Game> {
-        with_transaction!(&self.pool, |tx| {
+        with_serialized_transaction!(&self, |tx| {
             match partial_game.date_modified {
                 Some(_) => (),
                 None => partial_game.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
@@ -160,7 +166,7 @@ impl FlashpointArchive {
     }
 
     pub async fn save_games(&self, partial_games: Vec<&mut PartialGame>) -> Result<()> {
-        with_transaction!(&self.pool, |tx| {
+        with_serialized_transaction!(&self, |tx| {
             for partial_game in partial_games {
                 match partial_game.date_modified {
                     Some(_) => (),
@@ -173,7 +179,7 @@ impl FlashpointArchive {
     }
 
     pub async fn delete_game(&self, id: &str) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             game::delete(conn, id).context(error::SqliteSnafu)
         })
     }
@@ -191,7 +197,7 @@ impl FlashpointArchive {
     }
 
     pub async fn create_add_app(&self, add_app: &mut AdditionalApp) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             game::create_add_app(conn, add_app).context(error::SqliteSnafu)
         })
     }
@@ -245,13 +251,13 @@ impl FlashpointArchive {
     }
 
     pub async fn create_tag(&self, name: &str, category: Option<String>, id: Option<i64>) -> Result<Tag> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             tag::create(conn, name, category, id).context(error::SqliteSnafu)
         })
     }
 
     pub async fn save_tag(&self, partial: &mut PartialTag) -> Result<Tag> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             match partial.date_modified {
                 Some(_) => (),
                 None => partial.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
@@ -261,13 +267,13 @@ impl FlashpointArchive {
     }
 
     pub async fn delete_tag(&self, name: &str) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             tag::delete(conn, name).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_tag_by_id(&self, id: i64) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             tag::delete_by_id(conn, id).context(error::SqliteSnafu)
         })
     }
@@ -279,7 +285,7 @@ impl FlashpointArchive {
     }
 
     pub async fn merge_tags(&self, name: &str, merged_into: &str) -> Result<Tag> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             tag::merge_tag(conn, name, merged_into).context(error::SqliteSnafu)
         })
     }
@@ -303,13 +309,13 @@ impl FlashpointArchive {
     }
 
     pub async fn create_platform(&self, name: &str, id: Option<i64>) -> Result<Tag> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             platform::create(conn, name, id).context(error::SqliteSnafu)
         })
     }
 
     pub async fn save_platform(&self, partial: &mut PartialTag) -> Result<Tag> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             match partial.date_modified {
                 Some(_) => (),
                 None => partial.date_modified = Some(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
@@ -319,7 +325,7 @@ impl FlashpointArchive {
     }
 
     pub async fn delete_platform(&self, name: &str) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             platform::delete(conn, name).context(error::SqliteSnafu)
         })
     }
@@ -415,7 +421,7 @@ impl FlashpointArchive {
     }
 
     pub async fn add_game_playtime(&self, game_id: &str, seconds: i64) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             game::add_playtime(conn, game_id, seconds).context(error::SqliteSnafu)
         })
     }
@@ -445,49 +451,49 @@ impl FlashpointArchive {
     }
 
     pub async fn create_game_redirect(&self, src_id: &str, dest_id: &str) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             game::create_redirect(conn, src_id, dest_id).context(error::SqliteSnafu)
         })
     }
 
     pub async fn delete_game_redirect(&self, src_id: &str, dest_id: &str) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             game::delete_redirect(conn, src_id, dest_id).context(error::SqliteSnafu)
         })
     }
 
     pub async fn update_apply_categories(&self, cats: Vec<RemoteCategory>) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             update::apply_categories(conn, cats)
         })
     }
 
     pub async fn update_apply_platforms(&self, platforms: Vec<RemotePlatform>) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             update::apply_platforms(conn, platforms)
         })
     }
     
     pub async fn update_apply_tags(&self, tags: Vec<RemoteTag>) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             update::apply_tags(conn, tags)
         })
     }
 
     pub async fn update_apply_games(&self, games_res: &RemoteGamesRes, owner: &str) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             update::apply_games(conn, games_res, owner)
         })
     }
 
     pub async fn update_delete_games(&self, games_res: &RemoteDeletedGamesRes) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             update::delete_games(conn, games_res)
         })
     }
 
     pub async fn update_apply_redirects(&self, redirects_res: Vec<GameRedirect>) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             update::apply_redirects(conn, redirects_res)
         })
     }
@@ -499,7 +505,7 @@ impl FlashpointArchive {
     }
 
     pub async fn new_custom_id_order(&self, custom_id_order: Vec<String>) -> Result<()> {
-        with_transaction!(&self.pool, |conn| {
+        with_serialized_transaction!(&self, |conn| {
             game::search::new_custom_id_order(conn, custom_id_order).context(error::SqliteSnafu)
         })
     }
@@ -553,6 +559,7 @@ macro_rules! with_connection {
     };
 }
 
+
 #[macro_export]
 macro_rules! with_transaction {
     ($pool:expr, $body:expr) => {
@@ -569,6 +576,16 @@ macro_rules! with_transaction {
                 res
             },
             None => return Err(Error::DatabaseNotInitialized)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! with_serialized_transaction {
+    ($archive:expr, $body:expr) => {
+        {
+            let _write_guard = $archive.write_mutex.lock().unwrap();
+            with_transaction!($archive.pool.as_ref(), $body)
         }
     };
 }
