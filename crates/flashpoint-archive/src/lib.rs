@@ -947,6 +947,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_and_save_game_with_empty_detailed_tags() {
+        let mut flashpoint = FlashpointArchive::new();
+        let create = flashpoint.load_database(":memory:");
+        assert!(create.is_ok());
+        let partial_game = game::PartialGame {
+            title: Some(String::from("Test Game")),
+            detailed_tags: Some(vec![]),
+            tags: Some(vec!["Action"].into()),
+            ..game::PartialGame::default()
+        };
+        let result = flashpoint.create_game(&partial_game).await;
+        assert!(result.is_ok());
+        let game = result.unwrap();
+        let found_tag_res = flashpoint.find_tag("Action").await;
+        assert!(found_tag_res.is_ok());
+        let found_tag_opt = found_tag_res.unwrap();
+        assert!(found_tag_opt.is_some());
+        let found_game_res = flashpoint.find_game(&game.id).await;
+        assert!(found_game_res.is_ok());
+        let found_game_opt = found_game_res.unwrap();
+        assert!(found_game_opt.is_some());
+        let found_game = found_game_opt.unwrap();
+        assert!(found_game.detailed_tags.is_some());
+        let found_tags = found_game.detailed_tags.unwrap();
+        assert_eq!(found_tags.len(), 1);
+    }
+
+    #[tokio::test]
     async fn game_extension() {
         let mut flashpoint = FlashpointArchive::new();
         let create = flashpoint.load_database(":memory:");

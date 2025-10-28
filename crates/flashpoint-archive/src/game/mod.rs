@@ -421,12 +421,12 @@ pub fn create(conn: &Connection, partial: &PartialGame) -> Result<Game> {
     let mut detailed_tags = vec![];
 
     match game.detailed_tags.as_deref() {
-        Some(dtags) => {
+        Some(dtags) if !dtags.is_empty() => {
             for tag in dtags {
                 detailed_tags.push(tag.id);
             }
         },
-        None => {
+        _ => {
             for name in tags_copy {
                 let detailed_tag = tag::find_or_create(conn, &name)?;
                 game.tags.push(detailed_tag.name);
