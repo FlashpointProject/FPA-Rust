@@ -3,4 +3,5 @@ resolver = "2"
 members = [
     "crates/flashpoint-archive"
 , "crates/flashpoint-database-builder"
-, "crates/flashpoint-content-downloader"]
+, "crates/flashpoint-content-downloader"
+, "crates/flashpoint-json-export"]
